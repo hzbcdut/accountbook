@@ -1,0 +1,39 @@
+# Gradle / Build
+.gradle/
+build/
+*/build/
+out/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Kotlin
+.kotlin/
+
+# Keystore (NEVER commit)
+*.jks
+*.keystore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Editor
+.vscode/
+*.swp
+*~

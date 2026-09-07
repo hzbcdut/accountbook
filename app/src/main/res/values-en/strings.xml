@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AccountBook</string>
+    <string name="app_name_en">AccountBook</string>
+
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_share">Share</string>
+    <string name="action_more">More</string>
+    <string name="action_confirm">OK</string>
+    <string name="action_back">Back</string>
+
+    <string name="home_placeholder_title">AccountBook skeleton ready</string>
+    <string name="home_placeholder_subtitle">Phase 1 progress: %1$d / %2$d</string>
+
+    <string name="field_platform">Platform</string>
+    <string name="field_account">Account</string>
+    <string name="field_account_type_phone">Phone</string>
+    <string name="field_account_type_email">Email</string>
+    <string name="field_registered_at">Registered on</string>
+    <string name="field_registered_at_unknown">—</string>
+    <string name="field_tags">Tags</string>
+    <string name="field_notes">Notes</string>
+
+    <string name="theme_system">Follow system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_amoled">AMOLED black</string>
+
+    <string name="lock_title">AccountBook locked</string>
+    <string name="lock_subtitle">Authenticate to continue</string>
+    <string name="lock_action_unlock">Unlock</string>
+    <string name="lock_action_use_pin">Use PIN</string>
+    <string name="shortcut_lock">Lock AccountBook</string>
+</resources>

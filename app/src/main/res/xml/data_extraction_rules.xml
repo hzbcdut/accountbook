@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="accountbook.db" />
+        <exclude domain="sharedpref" path="accountbook_secure_prefs.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- 设备迁移时同样不参与,用户需要手动导出/导入。 -->
+        <exclude domain="database" path="accountbook.db" />
+        <exclude domain="sharedpref" path="accountbook_secure_prefs.xml" />
+    </device-transfer>
+</data-extraction-rules>

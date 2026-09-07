@@ -1,0 +1,10 @@
+{
+  "tags": [
+    { "id": "tag-social",   "name": "社交", "color": "#FFD0BCFF", "sortOrder": 10 },
+    { "id": "tag-shopping", "name": "购物", "color": "#FFFFB4AB", "sortOrder": 20 },
+    { "id": "tag-finance",  "name": "金融", "color": "#FF80D8FF", "sortOrder": 30 },
+    { "id": "tag-work",     "name": "工作", "color": "#FFC5E1A5", "sortOrder": 40 },
+    { "id": "tag-tool",     "name": "工具", "color": "#FFFFE082", "sortOrder": 50 },
+    { "id": "tag-other",    "name": "其他", "color": "#FFB0BEC5", "sortOrder": 60 }
+  ]
+}

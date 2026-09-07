@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 长按应用图标弹出的快捷动作:立即锁屏。
+         Phase 4 接 LockController,这里先占位保证 manifest 编译通过。 -->
+    <shortcut
+        android:shortcutId="lock"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_lock"
+        android:shortcutLongLabel="@string/shortcut_lock">
+        <intent
+            android:action="nt.ddeoid.accountbook.action.LOCK"
+            android:targetPackage="nt.ddeoid.accountbook"
+            android:targetClass="nt.ddeoid.accountbook.MainActivity" />
+    </shortcut>
+</shortcuts>

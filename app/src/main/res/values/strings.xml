@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">账号簿</string>
+    <string name="app_name_en">AccountBook</string>
+
+    <!-- 通用 -->
+    <string name="action_save">保存</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_delete">删除</string>
+    <string name="action_edit">编辑</string>
+    <string name="action_copy">复制</string>
+    <string name="action_share">分享</string>
+    <string name="action_more">更多</string>
+    <string name="action_confirm">确定</string>
+    <string name="action_back">返回</string>
+
+    <!-- 主界面占位 -->
+    <string name="home_placeholder_title">AccountBook 骨架已就绪</string>
+    <string name="home_placeholder_subtitle">Phase 1 完成度:%1$d / %2$d</string>
+
+    <!-- 字段 -->
+    <string name="field_platform">平台</string>
+    <string name="field_account">账号</string>
+    <string name="field_account_type_phone">手机</string>
+    <string name="field_account_type_email">邮箱</string>
+    <string name="field_registered_at">注册时间</string>
+    <string name="field_registered_at_unknown">未填</string>
+    <string name="field_tags">标签</string>
+    <string name="field_notes">备注</string>
+
+    <!-- 主题 -->
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="theme_amoled">AMOLED 纯黑</string>
+
+    <!-- 解锁 / 安全 -->
+    <string name="lock_title">AccountBook 已锁定</string>
+    <string name="lock_subtitle">请验证以继续</string>
+    <string name="lock_action_unlock">解锁</string>
+    <string name="lock_action_use_pin">使用 PIN</string>
+    <string name="shortcut_lock">锁定 AccountBook</string>
+</resources>

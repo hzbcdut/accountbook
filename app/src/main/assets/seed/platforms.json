@@ -1,0 +1,55 @@
+{
+  "platforms": [
+    { "id": "pf-wechat",     "name": "微信" },
+    { "id": "pf-qq",         "name": "QQ" },
+    { "id": "pf-weibo",      "name": "微博" },
+    { "id": "pf-xiaohongshu","name": "小红书" },
+    { "id": "pf-douyin",     "name": "抖音" },
+
+    { "id": "pf-taobao",     "name": "淘宝" },
+    { "id": "pf-jd",         "name": "京东" },
+    { "id": "pf-pdd",        "name": "拼多多" },
+    { "id": "pf-xianyu",     "name": "闲鱼" },
+    { "id": "pf-amazon-cn",  "name": "亚马逊" },
+
+    { "id": "pf-alipay",     "name": "支付宝" },
+    { "id": "pf-wechat-pay", "name": "微信支付" },
+    { "id": "pf-cmb",        "name": "招商银行" },
+    { "id": "pf-icbc",       "name": "工商银行" },
+    { "id": "pf-ccb",        "name": "建设银行" },
+    { "id": "pf-unionpay",   "name": "云闪付" },
+
+    { "id": "pf-12306",      "name": "12306" },
+    { "id": "pf-didi",       "name": "滴滴" },
+    { "id": "pf-amap",       "name": "高德地图" },
+    { "id": "pf-ctrip",      "name": "携程" },
+    { "id": "pf-fliggy",     "name": "飞猪" },
+
+    { "id": "pf-dingtalk",   "name": "钉钉" },
+    { "id": "pf-feishu",     "name": "飞书" },
+    { "id": "pf-wecom",      "name": "企业微信" },
+    { "id": "pf-gmail",      "name": "Gmail" },
+    { "id": "pf-outlook",    "name": "Outlook" },
+
+    { "id": "pf-baidu-pan",  "name": "百度网盘" },
+    { "id": "pf-aliyun-pan", "name": "阿里云盘" },
+    { "id": "pf-tx-doc",     "name": "腾讯文档" },
+    { "id": "pf-notion",     "name": "Notion" },
+    { "id": "pf-ticktick",   "name": "滴答清单" },
+
+    { "id": "pf-telegram",   "name": "Telegram" },
+    { "id": "pf-whatsapp",   "name": "WhatsApp" },
+    { "id": "pf-twitter",    "name": "Twitter (X)" },
+    { "id": "pf-instagram",  "name": "Instagram" },
+    { "id": "pf-linkedin",   "name": "LinkedIn" },
+
+    { "id": "pf-shein",      "name": "SHEIN" },
+    { "id": "pf-temu",       "name": "Temu" },
+
+    { "id": "pf-github",     "name": "GitHub" },
+    { "id": "pf-chatgpt",    "name": "ChatGPT" },
+    { "id": "pf-google",     "name": "Google 账户" },
+    { "id": "pf-apple",      "name": "Apple ID" },
+    { "id": "pf-microsoft",  "name": "Microsoft 账户" }
+  ]
+}
