@@ -58,6 +58,25 @@
     <string name="recovery_subtitle">输入你抄在纸上的 12 个助记词,顺序不要变</string>
     <string name="recovery_action_submit">恢复</string>
 
+    <!-- Phase 4 #31: SetupWizard 各步 -->
+    <string name="wizard_welcome_title">保护你的账号簿</string>
+    <string name="wizard_welcome_body">AccountBook 永远不会把账号上传到任何服务器。但为了防止别人拿到手机就能看,你可以设置一个本地加密 PIN 和 12 个助记词。</string>
+    <string name="wizard_welcome_start">开始设置</string>
+    <string name="wizard_welcome_skip">暂时跳过(可在设置中开启)</string>
+    <string name="wizard_pin_title">设置 PIN</string>
+    <string name="wizard_pin_body">至少 %1$d 位字符。这个 PIN 用来解锁 AccountBook —— 忘记就只能用助记词恢复。</string>
+    <string name="wizard_confirm_title">再次输入 PIN</string>
+    <string name="wizard_confirm_body">再输入一次刚才的 PIN。</string>
+    <string name="wizard_confirm_mismatch">两次输入不一致</string>
+    <string name="wizard_biometric_label">同时启用生物识别解锁</string>
+    <string name="wizard_mnemonic_title">抄写这 12 个词</string>
+    <string name="wizard_mnemonic_body">按顺序抄在纸上。**这是唯一能恢复你账号簿的办法**。AccountBook 不存这份词,丢了就找不回来。</string>
+    <string name="wizard_mnemonic_ack">我已抄好</string>
+    <string name="wizard_verify_title">验证一下</string>
+    <string name="wizard_verify_body">请输入第 %1$d 个词</string>
+    <string name="wizard_verify_wrong">词不对,检查一下抄写</string>
+    <string name="wizard_finishing">设置完成中…</string>
+
     <!-- Phase 2: 主界面 / 编辑 / 详情 -->
     <string name="search_placeholder">搜索平台 / 账号 / 备注</string>
     <string name="action_clear">清除</string>

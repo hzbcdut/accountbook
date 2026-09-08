@@ -53,6 +53,25 @@
     <string name="recovery_subtitle">Enter the 12 recovery words in order</string>
     <string name="recovery_action_submit">Recover</string>
 
+    <!-- Phase 4 #31: SetupWizard steps -->
+    <string name="wizard_welcome_title">Protect your AccountBook</string>
+    <string name="wizard_welcome_body">AccountBook never uploads your accounts. To prevent others with physical access from reading them, set a local PIN and a 12-word recovery phrase.</string>
+    <string name="wizard_welcome_start">Get started</string>
+    <string name="wizard_welcome_skip">Skip for now (enable later in Settings)</string>
+    <string name="wizard_pin_title">Set a PIN</string>
+    <string name="wizard_pin_body">At least %1$d characters. This PIN unlocks AccountBook; if you forget it, only the recovery phrase can restore access.</string>
+    <string name="wizard_confirm_title">Confirm PIN</string>
+    <string name="wizard_confirm_body">Enter the same PIN once more.</string>
+    <string name="wizard_confirm_mismatch">PINs do not match</string>
+    <string name="wizard_biometric_label">Also enable biometric unlock</string>
+    <string name="wizard_mnemonic_title">Write down these 12 words</string>
+    <string name="wizard_mnemonic_body">Write them on paper in order. **This is the only way to recover your AccountBook** — AccountBook does not store this phrase anywhere.</string>
+    <string name="wizard_mnemonic_ack">I have written them down</string>
+    <string name="wizard_verify_title">Verify</string>
+    <string name="wizard_verify_body">Enter the %1$d-th word</string>
+    <string name="wizard_verify_wrong">Wrong word, check your transcription</string>
+    <string name="wizard_finishing">Finishing setup…</string>
+
     <!-- Phase 2: Home / Edit / Detail -->
     <string name="search_placeholder">Search platform / account / notes</string>
     <string name="action_clear">Clear</string>

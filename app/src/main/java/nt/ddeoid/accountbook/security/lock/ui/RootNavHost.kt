@@ -89,7 +89,7 @@ fun RootNavHost(
         startDestination = RootRoutes.SETUP_WIZARD, // bootstrap 完成后 LaunchedEffect 会跳到正确目的地
         modifier = modifier,
     ) {
-        composable(RootRoutes.SETUP_WIZARD) { SetupWizardPlaceholder() }
+        composable(RootRoutes.SETUP_WIZARD) { SetupWizardScreen() }
         composable(RootRoutes.MIGRATION_WIZARD) { MigrationWizardPlaceholder() }
         composable(RootRoutes.LOCK_SCREEN) {
             LockScreen(
@@ -129,18 +129,8 @@ object RootRoutes {
 // -------------------------------------------------------------------------
 
 @Composable
-private fun SetupWizardPlaceholder() {
-    Placeholder("Setup Wizard · 将在 Step 8 替换")
-}
-
-@Composable
 private fun MigrationWizardPlaceholder() {
     Placeholder("Migration Wizard · 将在 Step 9 替换")
-}
-
-@Composable
-private fun LockScreenPlaceholder() {
-    Placeholder("Lock Screen · 将在 Step 6 替换")
 }
 
 @Composable
