@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import nt.ddeoid.accountbook.data.local.DatabaseBootstrap
+import nt.ddeoid.accountbook.security.lock.AppLifecycleObserver
 import nt.ddeoid.accountbook.security.lock.LockController
 import javax.inject.Inject
 
@@ -34,6 +35,7 @@ class AccountBookApp : Application() {
 
     @Inject lateinit var databaseBootstrap: DatabaseBootstrap
     @Inject lateinit var lockController: LockController
+    @Inject lateinit var appLifecycleObserver: AppLifecycleObserver
 
     /** 与进程同生共死的 scope;开库/播种这类启动任务挂在这里。 */
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -55,5 +57,9 @@ class AccountBookApp : Application() {
             runCatching { databaseBootstrap.openWithLegacyKey() }
                 .onFailure { android.util.Log.e("AccountBookApp", "启动开库失败", it) }
         }
+        // Phase 4 #32:把 ProcessLifecycleOwner 接到 LockController,实现
+        // "后台超过 timeoutMs → 回前台自动锁"。这一步**必须**在 lockController.bootstrap
+        // 之后调,但 observer 自己只读 state,顺序不严格 —— register() 即生效。
+        appLifecycleObserver.register()
     }
 }
