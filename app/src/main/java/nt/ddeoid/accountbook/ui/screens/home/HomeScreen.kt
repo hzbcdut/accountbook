@@ -279,6 +279,9 @@ private fun EmptyState(hasAnyAccount: Boolean, totalActive: Int) {
 }
 
 private fun copyToClipboard(context: Context, text: String) {
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-    cm.setPrimaryClip(ClipData.newPlainText("AccountBook account", text))
+    nt.ddeoid.accountbook.security.clipboard.SensitiveClipboard.copy(
+        context = context,
+        text = text,
+        label = "AccountBook account",
+    )
 }

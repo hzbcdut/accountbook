@@ -40,6 +40,22 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Phase 4 #34: Quick Settings Tile -->
+        <service
+            android:name=".security.lock.LockNowTileService"
+            android:label="@string/tile_lock_label"
+            android:icon="@drawable/ic_launcher_foreground"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <!-- 长按 tile 启动 app 时用 meta-data 指明,系统会调 TileService.requestListeningState -->
+            <meta-data
+                android:name="android.service.quicksettings.ACTIVE_TILE"
+                android:value="false" />
+        </service>
     </application>
 
 </manifest>

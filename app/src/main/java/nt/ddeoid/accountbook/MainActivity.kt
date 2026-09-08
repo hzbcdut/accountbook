@@ -17,7 +17,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import nt.ddeoid.accountbook.security.clipboard.SensitiveClipboard
 import nt.ddeoid.accountbook.security.lock.LockController
+import nt.ddeoid.accountbook.security.lock.LockShortcutAction
 import nt.ddeoid.accountbook.security.lock.ui.RootNavHost
 import nt.ddeoid.accountbook.ui.theme.AccountBookTheme
 import nt.ddeoid.accountbook.ui.theme.ThemeViewModel
@@ -83,10 +85,20 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
+     * 用户离开 app 的瞬间立刻清空敏感剪贴板 —— 比 60s 自动清空更激进,但符合
+     * "离开 app = 可能切到别人能看到的场景" 的直觉。SensitiveClipboard 内部
+     * 做 label 匹配,如果剪贴板已被用户复制成别的内容(URL / 文字),不会被误清。
+     */
+    override fun onStop() {
+        super.onStop()
+        SensitiveClipboard.clearNow(this)
+    }
+
+    /**
      * 处理"立即锁定"快捷方式。Activity 已经处于 Locked 状态时是 no-op(`lock()` 是幂等的)。
      */
     private fun handleLockShortcut(intent: Intent?) {
-        if (intent?.action != ACTION_LOCK_NOW) return
+        if (intent?.action != LockShortcutAction.ACTION_LOCK_NOW) return
         Log.i(TAG, "Lock shortcut triggered → lock()")
         lifecycleScope.launch {
             try {
@@ -99,7 +111,5 @@ class MainActivity : FragmentActivity() {
 
     private companion object {
         const val TAG = "MainActivity"
-        /** shortcuts.xml 里 `<intent android:action>` 用的 action,保持一致。 */
-        const val ACTION_LOCK_NOW = "nt.ddeoid.accountbook.action.LOCK"
     }
 }
