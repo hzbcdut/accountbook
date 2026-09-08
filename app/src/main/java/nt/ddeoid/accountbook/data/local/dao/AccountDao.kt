@@ -48,6 +48,25 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): AccountEntity?
 
+    /** 备份导出用:包含已停用账号。 */
+    @Transaction
+    @Query("SELECT * FROM accounts ORDER BY platform COLLATE NOCASE ASC, updated_at DESC")
+    fun observeAllAccountsWithTags(): Flow<List<AccountWithTags>>
+
+    @Transaction
+    @Query("SELECT * FROM accounts ORDER BY platform COLLATE NOCASE ASC, updated_at DESC")
+    suspend fun listAllWithTags(): List<AccountWithTags>
+
+    /** 备份导入去重用:查 (platform, account) 是否存在。 */
+    @Query(
+        """
+        SELECT * FROM accounts
+        WHERE LOWER(platform) = LOWER(:platform) AND LOWER(account) = LOWER(:account)
+        LIMIT 1
+        """,
+    )
+    suspend fun findByPlatformAccount(platform: String, account: String): AccountEntity?
+
     @Query("SELECT COUNT(*) FROM accounts")
     fun observeCount(): Flow<Int>
 

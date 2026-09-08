@@ -77,4 +77,32 @@
     <string name="status_active">Active</string>
     <string name="status_inactive">Inactive</string>
     <string name="detail_deleted">This account has been deleted</string>
+
+    <!-- Phase 3: Settings / Import / Export -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_data">Data</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_about">About</string>
+    <string name="settings_export_json">Export JSON backup</string>
+    <string name="settings_export_csv">Export CSV (Excel-friendly)</string>
+    <string name="settings_import_json">Import from JSON</string>
+    <string name="settings_import_csv">Import from CSV</string>
+    <string name="settings_export_filename_json">AccountBook-backup.json</string>
+    <string name="settings_export_filename_csv">AccountBook-accounts.csv</string>
+    <string name="settings_about_summary">%1$s · local · encrypted · offline</string>
+
+    <string name="dialog_export_title">Export backup?</string>
+    <string name="dialog_export_message">Will export %1$d accounts to the file you pick.\n\n⚠️ The backup is plaintext and contains your account info. Keep it safe; do not upload it to cloud drives or chat apps.</string>
+    <string name="dialog_export_confirm">I understand, export anyway</string>
+    <string name="dialog_export_no_data">No accounts in the database yet, nothing to export</string>
+
+    <string name="dialog_import_title">Import backup?</string>
+    <string name="dialog_import_message_json">Will restore %1$d accounts, %2$d tags, %3$d platform catalog entries from the backup.\n\nRule: existing (platform, account) pairs are skipped and never overwrite your edits.</string>
+    <string name="dialog_import_message_csv">Will restore %1$d accounts from the CSV.\n\nRule: existing (platform, account) pairs are skipped; tags are matched by name and silently dropped if unknown.</string>
+    <string name="dialog_import_confirm">Import anyway</string>
+
+    <string name="snackbar_export_done">Export done: %1$d accounts written</string>
+    <string name="snackbar_import_done">Import done: added %1$d · skipped %2$d</string>
+    <string name="snackbar_export_failed">Export failed: %1$s</string>
+    <string name="snackbar_import_failed">Import failed: %1$s</string>
 </resources>

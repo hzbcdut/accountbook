@@ -82,4 +82,32 @@
     <string name="status_active">启用</string>
     <string name="status_inactive">已停用</string>
     <string name="detail_deleted">该账号已被删除</string>
+
+    <!-- Phase 3: 设置 / 导入导出 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_section_data">数据</string>
+    <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_about">关于</string>
+    <string name="settings_export_json">导出 JSON 备份</string>
+    <string name="settings_export_csv">导出 CSV (Excel 友好)</string>
+    <string name="settings_import_json">从 JSON 导入</string>
+    <string name="settings_import_csv">从 CSV 导入</string>
+    <string name="settings_export_filename_json">AccountBook-backup.json</string>
+    <string name="settings_export_filename_csv">AccountBook-accounts.csv</string>
+    <string name="settings_about_summary">%1$s · 本地、加密、离线</string>
+
+    <string name="dialog_export_title">导出备份?</string>
+    <string name="dialog_export_message">将导出 %1$d 条账号到本地选择的文件。\n\n⚠️ 备份文件是明文,包含你的账号信息。请妥善保管,不要上传到云盘或聊天工具。</string>
+    <string name="dialog_export_confirm">我已知晓,继续导出</string>
+    <string name="dialog_export_no_data">数据库里还没有账号,无需导出</string>
+
+    <string name="dialog_import_title">导入备份?</string>
+    <string name="dialog_import_message_json">将从备份文件恢复 %1$d 条账号、%2$d 个标签、%3$d 个平台目录。\n\n规则:已存在 (平台, 账号) 的记录会跳过,不会覆盖你当前的修改。</string>
+    <string name="dialog_import_message_csv">将从 CSV 恢复 %1$d 条账号。\n\n规则:已存在 (平台, 账号) 的记录会跳过;标签按名字匹配,找不到的会丢弃。</string>
+    <string name="dialog_import_confirm">继续导入</string>
+
+    <string name="snackbar_export_done">导出完成:写入 %1$d 条账号</string>
+    <string name="snackbar_import_done">导入完成:新增 %1$d · 跳过 %2$d</string>
+    <string name="snackbar_export_failed">导出失败:%1$s</string>
+    <string name="snackbar_import_failed">导入失败:%1$s</string>
 </resources>

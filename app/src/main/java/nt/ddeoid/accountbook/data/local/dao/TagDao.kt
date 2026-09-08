@@ -16,6 +16,9 @@ interface TagDao {
     @Query("SELECT COUNT(*) FROM tags")
     fun observeCount(): Flow<Int>
 
+    @Query("SELECT * FROM tags ORDER BY sort_order ASC, name ASC")
+    suspend fun listAll(): List<TagEntity>
+
     @Query("SELECT * FROM tags WHERE name = :name LIMIT 1")
     suspend fun findByName(name: String): TagEntity?
 
