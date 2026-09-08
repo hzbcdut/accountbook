@@ -77,6 +77,19 @@
     <string name="wizard_verify_wrong">词不对,检查一下抄写</string>
     <string name="wizard_finishing">设置完成中…</string>
 
+    <!-- Phase 4 #31: 迁移向导(老 v0.3.0 升级用户) -->
+    <string name="migration_pin_title">为账号簿设置一个新 PIN</string>
+    <string name="migration_pin_body">至少 %1$d 位字符。从 v0.3.0 升级到这个版本后,数据库会用这个 PIN 派生的新密钥重新加密。旧数据不会丢。</string>
+    <string name="migration_confirm_title">再次输入新 PIN</string>
+    <string name="migration_confirm_body">再输一次刚才的 PIN,会用来重新加密本地数据库。</string>
+    <string name="migration_progress">正在重新加密数据库,请稍候…</string>
+    <string name="migration_interrupted_title">上次的升级被打断了</string>
+    <string name="migration_interrupted_body">数据库已经用新密钥加密,但还没完成 PIN 设置。**为了安全,不能再重试**。请从最近的备份恢复,或者从老版本(v0.3.x)重新导入数据后再升级。</string>
+    <string name="migration_action_restore_backup">从备份恢复</string>
+    <string name="migration_failed_title">升级失败</string>
+    <string name="migration_failed_body">重新加密数据库时出错了。可能是数据库已损坏,或者磁盘空间不够。\n\n你可以再试一次,或从备份恢复。</string>
+    <string name="migration_action_retry">重试</string>
+
     <!-- Phase 2: 主界面 / 编辑 / 详情 -->
     <string name="search_placeholder">搜索平台 / 账号 / 备注</string>
     <string name="action_clear">清除</string>

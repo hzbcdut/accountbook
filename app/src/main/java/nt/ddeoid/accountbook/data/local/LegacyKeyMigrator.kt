@@ -56,6 +56,10 @@ class LegacyKeyMigrator @Inject constructor(
      * @param mnemonicCodec 用于编码"万一用户没抄过 12 词,旧库用户也想看一眼" —— 旧库用户
      *   理论上从来没生成过助记词,但 [KeyVault.initializeWithExistingEntropy] 不消费
      *   codec,所以这里只是把它传给接口合同。
+     * @return 一个持有**新熵**的 [KeyVault.MasterKeyHandle] —— DB 已经用这个熵派生
+     *   的主密钥加密了,调用方(迁移 wizard)拿这个 handle 紧接着调
+     *   [nt.ddeoid.accountbook.security.lock.LockController.finishMigration] 把 DB 打开、
+     *   状态推到 Unlocked。**handle 的所有权移交 controller,这里不再 wipe**。
      * @throws IllegalStateException 前置条件不满足(没 legacy 口令、KeyVault 已初始化、DB 已打开)
      * @throws DatabaseOpenException 旧口令打不开文件(损坏或不是这把)
      * @throws DatabaseRekeyException rekey SQL 失败(SQLCipher 事务回滚,DB 不变)
@@ -63,7 +67,7 @@ class LegacyKeyMigrator @Inject constructor(
     suspend fun migrate(
         newPin: CharArray,
         mnemonicCodec: MnemonicCodec,
-    ) = withContext(Dispatchers.IO) {
+    ): KeyVault.MasterKeyHandle = withContext(Dispatchers.IO) {
         check(passphraseProvider.hasLegacy()) {
             "LegacyKeyMigrator 只能从 legacy 状态调起 —— passphraseProvider.hasLegacy()=false"
         }
@@ -89,7 +93,10 @@ class LegacyKeyMigrator @Inject constructor(
                 }
 
                 // 步骤 4:写 KeyVault。这步之后,KeyVault.isInitialized()=true,
-                // LockController.finishMigration 可以接着开库。
+                // LockController.finishMigration 可以接着开库。熵在用之前先 copyOf 出来
+                // 留给返回的 handle —— `initializeWithExistingEntropy` 会自己 wipe 自己的
+                // 入参副本,但 generated.entropy 还要在 finally 里被 wipe。
+                val entropyForHandle = generated.entropy.copyOf()
                 keyVault.initializeWithExistingEntropy(
                     entropy = generated.entropy.copyOf(),
                     pin = newPin,
@@ -100,6 +107,13 @@ class LegacyKeyMigrator @Inject constructor(
                 // 但旧口令残留在 prefs 里会让"hasLegacy()"误报 true,所以尽量清掉。
                 runCatching { passphraseProvider.wipe() }
                     .onFailure { android.util.Log.w(TAG, "wipe legacy 失败(非致命)", it) }
+
+                // 注意:return 在 try 块里;finally 还会跑一次 wipe generated.entropy
+                // —— entropyForHandle 是独立的副本,不受影响。
+                KeyVault.MasterKeyHandle(
+                    entropy = entropyForHandle,
+                    kind = KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_PIN,
+                )
             } finally {
                 generated.entropy.fill(0)
             }

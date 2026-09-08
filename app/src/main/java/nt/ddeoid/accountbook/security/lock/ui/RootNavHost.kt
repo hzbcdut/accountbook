@@ -90,7 +90,13 @@ fun RootNavHost(
         modifier = modifier,
     ) {
         composable(RootRoutes.SETUP_WIZARD) { SetupWizardScreen() }
-        composable(RootRoutes.MIGRATION_WIZARD) { MigrationWizardPlaceholder() }
+        composable(RootRoutes.MIGRATION_WIZARD) {
+            MigrationWizardScreen(
+                onRestoreFromBackup = {
+                    // Phase 5:接 BackupImporter 入口。本任务不实现,只占位。
+                },
+            )
+        }
         composable(RootRoutes.LOCK_SCREEN) {
             LockScreen(
                 onForgotPin = {
@@ -127,11 +133,6 @@ object RootRoutes {
 // Step 9 (MigrationWizard) 替换。占位期间保留功能:用户能看到当前 state 的字面值,
 // 避免锁定状态下 MainNavHost 错误地加载(后者会因为 DB 没开炸)。
 // -------------------------------------------------------------------------
-
-@Composable
-private fun MigrationWizardPlaceholder() {
-    Placeholder("Migration Wizard · 将在 Step 9 替换")
-}
 
 @Composable
 private fun Placeholder(label: String) {
