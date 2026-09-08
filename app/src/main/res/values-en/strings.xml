@@ -48,6 +48,11 @@
     <string name="lock_error_mnemonic_checksum">Invalid recovery phrase: check for missing words, wrong order, or a typo</string>
     <string name="lock_error_unknown">Unexpected error: %1$s</string>
 
+    <!-- Phase 4 #31: Recovery screen -->
+    <string name="recovery_title">Recover with phrase</string>
+    <string name="recovery_subtitle">Enter the 12 recovery words in order</string>
+    <string name="recovery_action_submit">Recover</string>
+
     <!-- Phase 2: Home / Edit / Detail -->
     <string name="search_placeholder">Search platform / account / notes</string>
     <string name="action_clear">Clear</string>

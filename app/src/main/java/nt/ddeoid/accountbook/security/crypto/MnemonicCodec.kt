@@ -27,6 +27,14 @@ class MnemonicCodec(wordList: List<String>) {
     private val words: List<String> = wordList.toList()
     private val indexOf: Map<String, Int> = words.withIndex().associate { (i, w) -> w to i }
 
+    /**
+     * 词表的 set view —— 给 UI 做"这个词是不是合法"的快速校验用(O(1) 查)。
+     *
+     * 故意暴露成 [Set] 而不是 [List]:UI 的 in-list 检查不需要顺序信息,给一个 set
+     * 表达更精确,而且外部不能拿它去按索引反查(那是 [MnemonicCodec] 自己的事)。
+     */
+    val wordSet: Set<String> get() = words.toSet()
+
     init {
         require(words.size == Bip39WordList.EXPECTED_SIZE) {
             "词表必须是 ${Bip39WordList.EXPECTED_SIZE} 个词,实际 ${words.size}"

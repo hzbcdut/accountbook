@@ -100,7 +100,11 @@ fun RootNavHost(
                 },
             )
         }
-        composable(RootRoutes.RECOVERY) { RecoveryPlaceholder() }
+        composable(RootRoutes.RECOVERY) {
+            RecoveryScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(RootRoutes.MAIN) { MainNavHost() }
     }
 }
@@ -137,11 +141,6 @@ private fun MigrationWizardPlaceholder() {
 @Composable
 private fun LockScreenPlaceholder() {
     Placeholder("Lock Screen · 将在 Step 6 替换")
-}
-
-@Composable
-private fun RecoveryPlaceholder() {
-    Placeholder("Recovery Screen · 将在 Step 7 替换")
 }
 
 @Composable

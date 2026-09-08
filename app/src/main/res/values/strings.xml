@@ -53,6 +53,11 @@
     <string name="lock_error_mnemonic_checksum">助记词无效:检查是否漏词、顺序错、或抄错了某个词</string>
     <string name="lock_error_unknown">发生未知错误:%1$s</string>
 
+    <!-- Phase 4 #31: Recovery 屏 -->
+    <string name="recovery_title">用助记词恢复</string>
+    <string name="recovery_subtitle">输入你抄在纸上的 12 个助记词,顺序不要变</string>
+    <string name="recovery_action_submit">恢复</string>
+
     <!-- Phase 2: 主界面 / 编辑 / 详情 -->
     <string name="search_placeholder">搜索平台 / 账号 / 备注</string>
     <string name="action_clear">清除</string>
