@@ -3,9 +3,7 @@ package nt.ddeoid.accountbook.data.export
 import androidx.room.withTransaction
 import nt.ddeoid.accountbook.data.export.model.AccountBookBackup
 import nt.ddeoid.accountbook.data.export.model.BackupSummary
-import nt.ddeoid.accountbook.data.local.AppDatabase
-import nt.ddeoid.accountbook.data.local.dao.AccountDao
-import nt.ddeoid.accountbook.data.local.dao.TagDao
+import nt.ddeoid.accountbook.data.local.DatabaseProvider
 import nt.ddeoid.accountbook.data.local.entity.AccountEntity
 import nt.ddeoid.accountbook.data.local.entity.AccountTagCrossRef
 import javax.inject.Inject
@@ -22,9 +20,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class BackupImporter @Inject constructor(
-    private val database: AppDatabase,
-    private val accountDao: AccountDao,
-    private val tagDao: TagDao,
+    private val databaseProvider: DatabaseProvider,
 ) {
 
     /** 入口:解析后的 [AccountBookBackup] → Room。 */
@@ -32,6 +28,12 @@ class BackupImporter @Inject constructor(
         backup: AccountBookBackup,
         isCsv: Boolean = false,
     ): BackupSummary {
+        // 一次导入操作里只解析一次 DAO:整个操作要么在同一个打开的库上完成,
+        // 要么中途库被关掉就整体失败,不会出现半截用旧 DAO 半截用新 DAO。
+        val database = databaseProvider.requireDatabase()
+        val accountDao = database.accountDao()
+        val tagDao = database.tagDao()
+
         val localTags = tagDao.listAll()
         val byName = localTags.associateBy { it.name }
 

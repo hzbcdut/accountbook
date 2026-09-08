@@ -1,7 +1,7 @@
 package nt.ddeoid.accountbook.data.repository
 
 import kotlinx.coroutines.flow.Flow
-import nt.ddeoid.accountbook.data.local.dao.AccountDao
+import nt.ddeoid.accountbook.data.local.DatabaseProvider
 import nt.ddeoid.accountbook.data.local.dao.AccountWithTags
 import nt.ddeoid.accountbook.data.local.dao.PlatformCatalogDao
 import nt.ddeoid.accountbook.data.local.entity.AccountEntity
@@ -13,25 +13,31 @@ import javax.inject.Singleton
  * Account 仓库。
  *
  * - 暴露 [observeActiveAccountsWithTags] 给 UI 直接消费。
- * - [upsert] / [delete] / [setActive] 是 Phase 2 CRUD 的入口;Phase 3 会加导入导出。
+ * - [upsert] / [delete] / [setActive] 是 CRUD 入口。
  * - 自动更新 [PlatformCatalogDao] 的 usage_count / last_used_at。
+ *
+ * DAO 不再直接注入,而是每次通过 [DatabaseProvider] 解析(Q4=C:库可以被关掉,
+ * 长期持有 DAO 会攥着一个指向已关闭连接的野指针)。观察型方法用
+ * [DatabaseProvider.deferred] 把解析推迟到**订阅时**,所以构造这个仓库不需要库已打开。
  */
 @Singleton
 class AccountRepository @Inject constructor(
-    private val accountDao: AccountDao,
-    private val platformCatalogDao: PlatformCatalogDao,
+    private val databaseProvider: DatabaseProvider,
 ) {
 
     fun observeActiveAccountsWithTags(): Flow<List<AccountWithTags>> =
-        accountDao.observeActiveAccountsWithTags()
+        databaseProvider.deferred { it.accountDao().observeActiveAccountsWithTags() }
 
     fun observeAccountWithTags(id: String): Flow<AccountWithTags?> =
-        accountDao.observeWithTags(id)
+        databaseProvider.deferred { it.accountDao().observeWithTags(id) }
 
     suspend fun upsert(
         account: AccountEntity,
         tagIds: List<String>,
     ) {
+        val accountDao = databaseProvider.accountDao()
+        val platformCatalogDao = databaseProvider.platformCatalogDao()
+
         val now = System.currentTimeMillis()
         val withTimestamps = account.copy(
             updatedAt = now,
@@ -56,11 +62,11 @@ class AccountRepository @Inject constructor(
     }
 
     suspend fun delete(id: String) {
-        accountDao.deleteById(id)
+        databaseProvider.accountDao().deleteById(id)
     }
 
     suspend fun setActive(id: String, active: Boolean) {
-        accountDao.setActive(id, active, System.currentTimeMillis())
+        databaseProvider.accountDao().setActive(id, active, System.currentTimeMillis())
     }
 
     companion object {

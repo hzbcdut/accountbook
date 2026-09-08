@@ -10,9 +10,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import nt.ddeoid.accountbook.data.local.DatabaseProvider
 import nt.ddeoid.accountbook.data.local.dao.AccountWithTags
-import nt.ddeoid.accountbook.data.local.dao.PlatformCatalogDao
-import nt.ddeoid.accountbook.data.local.dao.TagDao
 import nt.ddeoid.accountbook.data.local.entity.AccountEntity
 import nt.ddeoid.accountbook.data.local.entity.AccountType
 import nt.ddeoid.accountbook.data.local.entity.PlatformCatalogEntity
@@ -28,15 +27,14 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
-    tagDao: TagDao,
-    platformCatalogDao: PlatformCatalogDao,
+    private val databaseProvider: DatabaseProvider,
 ) : ViewModel() {
 
     private val filterState = MutableStateFlow(HomeFilterState())
 
     val state: StateFlow<HomeUiState> = combine(
         accountRepository.observeActiveAccountsWithTags(),
-        tagDao.observeAll(),
+        databaseProvider.deferred { it.tagDao().observeAll() },
         filterState,
     ) { accounts, tags, filter ->
         buildUiState(accounts, tags, filter)
@@ -49,8 +47,8 @@ class HomeViewModel @Inject constructor(
     // 一次性计数,Phase 1 占位屏用过,Phase 2 还会在第一次冷启动时用到。
     val counts: StateFlow<HomeCounts> = combine(
         accountRepository.observeActiveAccountsWithTags(),
-        platformCatalogDao.observeCount(),
-        tagDao.observeCount(),
+        databaseProvider.deferred { it.platformCatalogDao().observeCount() },
+        databaseProvider.deferred { it.tagDao().observeCount() },
     ) { accounts, platforms, tags ->
         HomeCounts(
             activeAccountCount = accounts.size,
@@ -65,7 +63,7 @@ class HomeViewModel @Inject constructor(
 
     // 平台目录(BottomSheet 自动补全)
     val platformSuggestions: StateFlow<List<PlatformCatalogEntity>> =
-        platformCatalogDao.observeAll()
+        databaseProvider.deferred { it.platformCatalogDao().observeAll() }
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5_000),

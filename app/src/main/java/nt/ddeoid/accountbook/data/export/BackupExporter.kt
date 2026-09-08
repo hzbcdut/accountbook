@@ -5,9 +5,7 @@ import nt.ddeoid.accountbook.data.export.model.AccountBookBackup
 import nt.ddeoid.accountbook.data.export.model.AccountExport
 import nt.ddeoid.accountbook.data.export.model.PlatformExport
 import nt.ddeoid.accountbook.data.export.model.TagExport
-import nt.ddeoid.accountbook.data.local.dao.AccountDao
-import nt.ddeoid.accountbook.data.local.dao.PlatformCatalogDao
-import nt.ddeoid.accountbook.data.local.dao.TagDao
+import nt.ddeoid.accountbook.data.local.DatabaseProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,18 +17,25 @@ import javax.inject.Singleton
  * - 所有标签(含内置)
  * - 所有平台目录(含内置)
  *
- * 注意:这里不打码不加密 —— 备份文件是用户主动导出到外部存储的明文 JSON / CSV,
- * 敏感数据由用户在导出确认对话框里被警告。生产环境的"备份"是另外一条路(SQLCipher 数据库
- * 自身的拷贝),见 Phase 7 备份设计。
+ * ⚠️ 这里**不打码不加密** —— 产出的是用户主动导出到外部存储的明文 JSON / CSV,
+ * 敏感性由导出前的确认对话框(Q7=A 决定不额外加 re-auth,但保留警告)提示用户。
+ *
+ * Phase 4 另有一条**加密备份**路径:直接把 SQLCipher 的 `accountbook.db` 文件本身
+ * 复制出去 —— 它已经是用 master key 加密的容器,配合 12 词助记词就能在新设备上完整
+ * 还原。那条路不经过这个类。
  */
 @Singleton
 class BackupExporter @Inject constructor(
-    private val accountDao: AccountDao,
-    private val tagDao: TagDao,
-    private val platformCatalogDao: PlatformCatalogDao,
+    private val databaseProvider: DatabaseProvider,
 ) {
 
     suspend fun snapshot(): AccountBookBackup {
+        // 一次快照只解析一次 DAO,保证三个查询落在同一个打开的库上。
+        val database = databaseProvider.requireDatabase()
+        val accountDao = database.accountDao()
+        val tagDao = database.tagDao()
+        val platformCatalogDao = database.platformCatalogDao()
+
         val accountRows = accountDao.listAllWithTags()
         val tagRows = tagDao.listAll()
         val platformRows = platformCatalogDao.observeAll().first()
