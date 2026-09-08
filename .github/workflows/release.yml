@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 不要在打 tag 时和并发 build 抢资源。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # 用来创建 GitHub Release
+
+jobs:
+  release:
+    name: Build & Publish APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          # 把 v0.2.0 -> 0.2.0 用于 APK 命名
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.2.1'
+
+      - name: Cache Gradle / Android SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.android/build-cache
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Assemble Debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Rename APK to include version
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk \
+             app/build/outputs/apk/debug/accountbook-${{ steps.version.outputs.version }}-debug.apk
+
+      - name: Compute SHA256
+        run: |
+          cd app/build/outputs/apk/debug
+          sha256sum accountbook-${{ steps.version.outputs.version }}-debug.apk | tee accountbook-${{ steps.version.outputs.version }}-debug.apk.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            app/build/outputs/apk/debug/accountbook-${{ steps.version.outputs.version }}-debug.apk
+            app/build/outputs/apk/debug/accountbook-${{ steps.version.outputs.version }}-debug.apk.sha256
+          body: |
+            ## 自动构建产物
+
+            此 Release 由 GitHub Actions 在 push tag `${{ steps.version.outputs.tag }}` 时自动生成。
+
+            ### 验证指纹
+
+            ```
+            文件: accountbook-${{ steps.version.outputs.version }}-debug.apk
+            SHA256: 见同目录 .sha256 文件
+            ```
+
+            ### 安装
+
+            ```bash
+            adb install accountbook-${{ steps.version.outputs.version }}-debug.apk
+            ```
+
+            ⚠️ debug APK 使用 Android Studio 默认 debug keystore 签名。正式发布前请在 `app/build.gradle.kts` 替换为真实 keystore。

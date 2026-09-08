@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # 把所有依赖更新合到一个 PR 里,避免 PR 风暴
+      all-dependencies:
+        patterns:
+          - "*"
