@@ -1,6 +1,8 @@
 package nt.ddeoid.accountbook.security.crypto
 
 import java.security.SecureRandom
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * 随机熵来源。
@@ -9,7 +11,10 @@ import java.security.SecureRandom
  * **不接受任何自定义 Random** —— 助记词的全部安全性都压在这 16 个字节上,
  * 一个可预测的 RNG 等于把主密钥写在脸上。
  */
-class EntropySource(private val random: SecureRandom = SecureRandom()) {
+@Singleton
+class EntropySource @Inject constructor() {
+
+    private val random: SecureRandom = SecureRandom()
 
     /** 128 bit 熵 → 12 个 BIP39 词。这是本 app 的默认档位。 */
     fun nextMnemonicEntropy(): ByteArray = nextBytes(MNEMONIC_ENTROPY_BYTES)

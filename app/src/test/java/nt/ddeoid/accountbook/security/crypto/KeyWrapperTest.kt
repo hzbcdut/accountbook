@@ -17,7 +17,7 @@ import javax.crypto.spec.SecretKeySpec
  */
 class KeyWrapperTest {
 
-    private val wrapper = KeyWrapper()
+    private val wrapper = KeyWrapper(EntropySource())
     private val masterKey = SecretBytes(ByteArray(32) { (it + 1).toByte() })
     private val wrappingKey = ByteArray(32) { (it + 100).toByte() }
 

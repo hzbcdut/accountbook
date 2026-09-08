@@ -52,6 +52,7 @@ class KeyVaultTest {
             prefsFactory = prefs,
             keystoreAccess = keystore,
             entropySource = EntropySource(),
+            wrapper = KeyWrapper(EntropySource()),
             pinKdfIterations = 1000, // 单测跑小值,生产走 PRODUCTION_ITERATIONS
         )
     }
@@ -133,7 +134,7 @@ class KeyVaultTest {
         )
         try {
             try {
-                KeyWrapper().unwrap(
+                KeyWrapper(EntropySource()).unwrap(
                     pinKey.bytes, bioBlob!!, KeyWrapper.WrapContext.PIN,
                 )
                 fail("PIN 路径不应能解生物识别 blob")
@@ -333,6 +334,78 @@ class KeyVaultTest {
             vault.unlockWithBiometric()
             fail("没生物识别路径应当抛 BlobCorrupted")
         } catch (e: CryptoException.BlobCorrupted) {
+            // 期望
+        }
+    }
+
+    // --- initializeWithExistingEntropy(迁移路径) -----------------------
+
+    /**
+     * 用现有的熵初始化 KeyVault,关键不变量是:
+     *
+     * 1. 写出的熵字节 == 调用方传入的熵字节
+     * 2. 之后用 PIN 解出来的 handle.entropy 跟那个熵完全一致
+     *
+     * 这两条合起来就是"迁移路径和 fresh install 路径写出的字段完全一致"的实质保证。
+     */
+    @Test
+    fun `initializeWithExistingEntropy round-trips through PIN`() {
+        val expectedEntropy = ByteArray(16) { (it + 7).toByte() }
+        val entropy = expectedEntropy.copyOf()
+        val pin = "123456".toCharArray()
+        vault.initializeWithExistingEntropy(entropy, pin, codec)
+
+        assertTrue(vault.isInitialized())
+        assertTrue(vault.hasPin())
+        assertTrue(vault.hasBiometric())
+
+        // 不变量 1:prefs 里写出的熵 == 调用方传入的熵
+        val stored = readEntropyFromPrefs()
+        assertArrayEquals(expectedEntropy, stored)
+
+        // 不变量 2:用 PIN 解出来 == 同一个熵
+        val pin2 = "123456".toCharArray()
+        val handle = try {
+            vault.unlockWithPin(pin2)
+        } finally {
+            SecretBytes.wipe(pin2)
+        }
+        try {
+            assertArrayEquals(expectedEntropy, handle.entropy)
+            assertEquals(KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_PIN, handle.kind)
+        } finally {
+            handle.wipe()
+            stored.fill(0)
+        }
+        expectedEntropy.fill(0)
+    }
+
+    @Test
+    fun `initializeWithExistingEntropy rejects wrong entropy length`() {
+        try {
+            vault.initializeWithExistingEntropy(
+                ByteArray(15), // 短了一字节
+                "123456".toCharArray(),
+                codec,
+            )
+            fail("熵不是 16 字节应当抛 IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            // 期望
+        }
+    }
+
+    @Test
+    fun `initializeWithExistingEntropy twice throws`() {
+        vault.initialize("123456".toCharArray(), codec)
+        SecretBytes.wipe("123456".toCharArray())
+        try {
+            vault.initializeWithExistingEntropy(
+                ByteArray(16) { 0x42 },
+                "abcdefgh".toCharArray(),
+                codec,
+            )
+            fail("重复初始化应当抛 IllegalStateException")
+        } catch (e: IllegalStateException) {
             // 期望
         }
     }

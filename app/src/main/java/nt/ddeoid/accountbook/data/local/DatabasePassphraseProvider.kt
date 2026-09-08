@@ -42,6 +42,15 @@ class DatabasePassphraseProvider(context: Context) {
         return fresh
     }
 
+    /**
+     * 只读检测:legacy v0.3.0 口令是否还在 prefs 里。
+     *
+     * 区别于 [getOrCreate] 的"没有就造一个"语义 —— [hasLegacy] 只是观察,绝不写。
+     * 这点是 Phase 4 #30 的关键:启动时检测是不是升级用户,**不能**因为检测就造出一条
+     * legacy 口令然后误判成"刚升级的"。
+     */
+    fun hasLegacy(): Boolean = prefs.contains(KEY_DB_PASSPHRASE_B64)
+
     /** Phase 4 用:用户主动清空数据时,清掉口令让 DB 文件变成随机噪声。 */
     fun wipe() {
         prefs.edit().remove(KEY_DB_PASSPHRASE_B64).apply()

@@ -10,7 +10,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
 import nt.ddeoid.accountbook.data.local.DatabaseProvider
+import nt.ddeoid.accountbook.data.local.MigrationMarker
 import nt.ddeoid.accountbook.security.crypto.MasterKeyFactory
 import nt.ddeoid.accountbook.security.crypto.MnemonicCodec
 import nt.ddeoid.accountbook.security.crypto.SecretBytes
@@ -60,6 +62,8 @@ class LockController @Inject constructor(
     private val keyVault: KeyVault,
     private val lockPrefs: LockPrefs,
     private val mnemonicCodec: MnemonicCodec,
+    private val passphraseProvider: DatabasePassphraseProvider,
+    private val migrationMarker: MigrationMarker,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
 ) {
 
@@ -76,28 +80,29 @@ class LockController @Inject constructor(
     private val transition = Mutex()
 
     /**
-     * 启动时调用一次:从 [LockPrefs] 读快照决定初始状态。
+     * 启动时调用一次:根据 KeyVault / Legacy passphrase / MigrationMarker 决定初始状态。
      *
-     * - KeyVault 未初始化 → NeedsSetup
-     * - KeyVault 已初始化但 lockEnabled=false → Locked(因为用户**主动**说"不启用",
-     *   即使 Vault 里有熵,也不让它留在内存里 —— 下次再启用要走 setup)
-     * - KeyVault 已初始化且 lockEnabled=true → Locked
+     * 三态分发(Q4 + Phase 4 #30):
+     *
+     * - **Migrating**:`migrationMarker.inProgress == true`(上次迁移中断)**或**
+     *   `!isInitialized() && passphraseProvider.hasLegacy()`(v0.3.0 升级)。
+     *   走迁移 wizard 或恢复备份引导。
+     * - **NeedsSetup**:全新设备,既没 vault 也没 legacy。走 SetupWizard。
+     * - **Locked**:KeyVault 已初始化(说明已经走过 setup 或迁移)。需要解锁。
      */
     suspend fun bootstrap() = withContext(Dispatchers.IO) {
-        val prefs = lockPrefs.snapshot()
         val initialized = keyVault.isInitialized()
+        val hasLegacy = passphraseProvider.hasLegacy()
+        val migrationInterrupted = migrationMarker.inProgress
         val target = when {
+            migrationInterrupted -> LockState.Migrating
+            !initialized && hasLegacy -> LockState.Migrating
             !initialized -> LockState.NeedsSetup
             else -> LockState.Locked
         }
         _state.value = target
         // 把 prefs 里残留的"上次进后台时间"清掉 —— 启动永远从 Locked 开始
         lockPrefs.clearBackgroundMarker()
-        // 顺手把"未启用"的语义落实:lockEnabled=false + KeyVault 未初始化 → 完全跳过;
-        // lockEnabled=false + KeyVault 已初始化 → 仍然 Locked,需要走 SetupWizard 的"清空"路径
-        if (!prefs.lockEnabled && !initialized) {
-            _state.update { LockState.Locked }
-        }
     }
 
     /**
@@ -115,6 +120,37 @@ class LockController @Inject constructor(
         transition.withLock {
             check(_state.value == LockState.NeedsSetup) { "不能在 NeedsSetup 之外调 finishSetup: state=${_state.value}" }
             openDatabaseWith(handle)
+            activeHandle = handle
+            lockPrefs.setLockEnabled(lockEnabled)
+            lockPrefs.setTimeout(timeout)
+            lockPrefs.clearBackgroundMarker()
+            _state.value = LockState.Unlocked
+        }
+    }
+
+    /**
+     * 完成迁移 wizard 后的写操作。
+     *
+     * 区别于 [finishSetup]:KeyVault 已经在 [nt.ddeoid.accountbook.data.local.LegacyKeyMigrator]
+     * 里通过 `initializeWithExistingEntropy` 初始化过了。这里只负责:
+     * 1. 用 [handle] 派生 master key 并打开 DB(此时 DB 已经用新 key 加密)
+     * 2. 缓存 handle
+     * 3. 写 prefs
+     * 4. 推状态到 Unlocked
+     *
+     * @param handle 由 [nt.ddeoid.accountbook.data.local.LegacyKeyMigrator] 提供的 master key
+     *   句柄 —— 它持有迁移时新生成的熵。
+     */
+    suspend fun finishMigration(
+        handle: KeyVault.MasterKeyHandle,
+        lockEnabled: Boolean,
+        timeout: LockPrefs.TimeoutTier = LockPrefs.TimeoutTier.IMMEDIATE,
+    ) = withContext(Dispatchers.IO) {
+        transition.withLock {
+            check(_state.value == LockState.Migrating) {
+                "不能在 Migrating 之外调 finishMigration: state=${_state.value}"
+            }
+            openDatabaseWithOrWipe(handle)
             activeHandle = handle
             lockPrefs.setLockEnabled(lockEnabled)
             lockPrefs.setTimeout(timeout)
@@ -279,9 +315,11 @@ class LockController @Inject constructor(
         // No-op.
     }
 
-    /** 暴露给 UI 观察的状态。三态枚举,显式 sealed(不可 null)。 */
+    /** 暴露给 UI 观察的状态。四态枚举,显式 sealed(不可 null)。 */
     sealed interface LockState {
         data object NeedsSetup : LockState
+        /** v0.3.0 升级用户:走迁移 wizard,或者迁移被打断 → 引导恢复备份。 */
+        data object Migrating : LockState
         data object Locked : LockState
         data object Unlocked : LockState
     }

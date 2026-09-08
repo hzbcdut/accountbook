@@ -5,6 +5,8 @@ import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * 用 AES-256-GCM 包裹 / 解包 master key。
@@ -27,7 +29,10 @@ import javax.crypto.spec.SecretKeySpec
  * `java.util.Base64` 需要 API 26;`minSdk` 正好是 26,所以可用。而且它是纯 JVM 的,
  * 这让本类不需要 Robolectric 就能单测。
  */
-class KeyWrapper(private val entropySource: EntropySource = EntropySource()) {
+@Singleton
+class KeyWrapper @Inject constructor(
+    private val entropySource: EntropySource,
+) {
 
     /** 用原始软件密钥(PIN 路径)包裹 [plaintext]。 */
     fun wrap(rawKey: ByteArray, plaintext: SecretBytes, context: WrapContext): String =

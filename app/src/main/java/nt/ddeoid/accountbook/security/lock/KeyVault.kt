@@ -56,9 +56,9 @@ import javax.inject.Singleton
 class KeyVault @Inject constructor(
     private val prefsFactory: EncryptedPrefsFactory,
     private val keystoreAccess: KeystoreAccess,
-    private val entropySource: EntropySource = EntropySource(),
-    private val wrapper: KeyWrapper = KeyWrapper(entropySource),
-    private val pinKdfIterations: Int = PinKdf.PRODUCTION_ITERATIONS,
+    private val entropySource: EntropySource,
+    private val wrapper: KeyWrapper,
+    private val pinKdfIterations: Int,
 ) {
 
     /**
@@ -81,43 +81,81 @@ class KeyVault @Inject constructor(
      * @throws IllegalStateException 已经初始化过
      */
     fun initialize(pin: CharArray, mnemonicCodec: MnemonicCodec): SetupResult {
-        check(!isInitialized()) { "KeyVault 已经初始化,不要重复调用 initialize" }
+        val generated = MasterKeyFactory.generate(mnemonicCodec, entropySource)
+        try {
+            // 走迁移路径共用的 wrap/persist 代码 —— 两条路径写出的字段必须完全一致,
+            // 否则"升级用户的 KeyVault 和 fresh install 的 KeyVault 长得不一样"这种
+            // 静默 bug 早晚会冒头。
+            val setupResult = initializeWithExistingEntropy(
+                entropy = generated.entropy,
+                pin = pin,
+                mnemonicCodec = mnemonicCodec,
+            )
+            // setupResult.masterKey 是底层方法为了兼容调用方生成的临时副本;外部拿到的是
+            // generated.masterKey(由 generate 派生 + 由 generated.mnemonic 配套)。两者字节
+            // 完全相同(Q10=A + HKDF 确定性),但生命周期管理要分开。
+            try { setupResult.masterKey.wipe() } catch (_: Throwable) { /* already wiped */ }
+            return SetupResult(
+                masterKey = generated.masterKey,
+                mnemonic = generated.mnemonic,
+            )
+        } catch (t: Throwable) {
+            generated.masterKey.wipe()
+            generated.entropy.fill(0)
+            throw t
+        }
+    }
+
+    /**
+     * 用**已存在**的熵初始化 KeyVault。
+     *
+     * 这是 [initialize] 和 [LegacyKeyMigrator] 共用的底层方法 —— 前者生成熵后调这里,
+     * 后者把已经算好的熵(为了 rekey SQLCipher 提前算的)喂进来,绕过生成步骤。
+     *
+     * **两条路径共享同一段 wrap/persist 代码**,保证 prefs 里写出的字段一字不差。
+     *
+     * @param entropy 16 字节 BIP39 熵。本方法在返回前会清零它。
+     * @param pin 用户选择的 PIN/passphrase,本方法用完会 wipe 派生的密钥。
+     * @return [SetupResult],其中 [SetupResult.masterKey] 是一次性副本(底层方法生成,
+     *   [initialize] 不会暴露给调用方)。`[SetupResult.mnemonic]` 在迁移路径下为空,
+     *   因为旧库用户从来没见过 12 词。
+     * @throws IllegalStateException 已经初始化过
+     */
+    fun initializeWithExistingEntropy(
+        entropy: ByteArray,
+        pin: CharArray,
+        @Suppress("UNUSED_PARAMETER") mnemonicCodec: MnemonicCodec,
+    ): SetupResult {
+        check(!isInitialized()) { "KeyVault 已经初始化,不要重复调用 initializeWithExistingEntropy" }
+        require(entropy.size == 16) {
+            "熵必须是 16 字节 (BIP39 128-bit 档位),实际 ${entropy.size}"
+        }
         val salt = entropySource.nextSalt()
         val pinKey = PinKdf.derive(pin, salt, pinKdfIterations)
         val bioKey = keystoreAccess.ensureBiometricKey()
         try {
-            val generated = MasterKeyFactory.generate(mnemonicCodec, entropySource)
-            try {
-                // 熵是持久化层的"主语":wrap 它、存它、助记词也是它(Q10=A)。
-                // masterKey 在这里只是给 SetupResult 顺路带回去,不在 blob 里出现。
-                val entropy = generated.entropy
-                val pinBlob = SecretBytes(entropy.copyOf()).use { copyForPin ->
-                    wrapper.wrap(pinKey.bytes, copyForPin, KeyWrapper.WrapContext.PIN)
-                }
-                val bioBlob = SecretBytes(entropy.copyOf()).use { copyForBio ->
-                    wrapper.wrap(bioKey, copyForBio, KeyWrapper.WrapContext.BIOMETRIC)
-                }
-                withPrefs { prefs ->
-                    prefs.edit()
-                        .putString(KEY_MASTER_ENTROPY, base64(entropy))
-                        .putString(KEY_PIN_SALT, base64(salt))
-                        .putInt(KEY_KDF_ITERATIONS, pinKdfIterations)
-                        .putString(KEY_PIN_BLOB, pinBlob)
-                        .putString(KEY_BIO_BLOB, bioBlob)
-                        .putString(KEY_BIO_KEY_ALIAS, keystoreAccess.biometricKeyAlias)
-                        .apply()
-                }
-                // 熵已经写进 prefs,可以擦了
-                entropy.fill(0)
-                return SetupResult(
-                    masterKey = generated.masterKey,
-                    mnemonic = generated.mnemonic,
-                )
-            } catch (t: Throwable) {
-                generated.masterKey.wipe()
-                generated.entropy.fill(0)
-                throw t
+            // 熵是持久化层的"主语":wrap 它、存它(Q10=A)。masterKey 不在 blob 里出现。
+            val pinBlob = SecretBytes(entropy.copyOf()).use { copyForPin ->
+                wrapper.wrap(pinKey.bytes, copyForPin, KeyWrapper.WrapContext.PIN)
             }
+            val bioBlob = SecretBytes(entropy.copyOf()).use { copyForBio ->
+                wrapper.wrap(bioKey, copyForBio, KeyWrapper.WrapContext.BIOMETRIC)
+            }
+            withPrefs { prefs ->
+                prefs.edit()
+                    .putString(KEY_MASTER_ENTROPY, base64(entropy))
+                    .putString(KEY_PIN_SALT, base64(salt))
+                    .putInt(KEY_KDF_ITERATIONS, pinKdfIterations)
+                    .putString(KEY_PIN_BLOB, pinBlob)
+                    .putString(KEY_BIO_BLOB, bioBlob)
+                    .putString(KEY_BIO_KEY_ALIAS, keystoreAccess.biometricKeyAlias)
+                    .apply()
+            }
+            entropy.fill(0)
+            return SetupResult(
+                masterKey = MasterKeyFactory.fromEntropy(entropy.copyOf()),
+                mnemonic = emptyList(),
+            )
         } finally {
             pinKey.wipe()
         }

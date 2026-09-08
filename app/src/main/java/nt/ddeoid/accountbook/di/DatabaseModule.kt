@@ -7,8 +7,10 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
+import nt.ddeoid.accountbook.data.local.MigrationMarker
 import nt.ddeoid.accountbook.security.crypto.Bip39WordListProvider
 import nt.ddeoid.accountbook.security.crypto.MnemonicCodec
+import nt.ddeoid.accountbook.security.crypto.PinKdf
 import nt.ddeoid.accountbook.security.lock.EncryptedPrefsFactory
 import nt.ddeoid.accountbook.security.lock.KeystoreAccess
 import javax.inject.Singleton
@@ -52,4 +54,23 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideKeystoreAccess(): KeystoreAccess = KeystoreAccess.Default()
+
+    /**
+     * [MigrationMarker] 需要一个生产用的 [android.content.SharedPreferences](在
+     * [MigrationMarker.Factory] 里开)。测试可以直接构造 `MigrationMarker(inMemoryPrefs)`。
+     */
+    @Provides
+    @Singleton
+    fun provideMigrationMarker(factory: MigrationMarker.Factory): MigrationMarker =
+        MigrationMarker(factory.create())
+
+    /**
+     * PBKDF2 迭代次数 —— 跟 [PinKdf.PRODUCTION_ITERATIONS] 绑死。
+     *
+     * 走 Hilt 而不是默认值,是因为 [KeyVault] 的构造器参数 `pinKdfIterations: Int`
+     * 有默认但 Hilt 不会读 Kotlin 默认值。
+     */
+    @Provides
+    @Singleton
+    fun providePinKdfIterations(): Int = PinKdf.PRODUCTION_ITERATIONS
 }
