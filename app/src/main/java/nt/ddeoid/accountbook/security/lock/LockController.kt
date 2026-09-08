@@ -38,11 +38,18 @@ import javax.inject.Singleton
  *                       │ unlockWith*()
  *                       ▼
  *                   Unlocked
+ *
+ *                    skipSetup()
+ * NeedsSetup ──────────────────────────► Disabled (vault NOT initialized)
+ *                                                │
+ *                                                │ (用户在 Settings 启用锁 → NeedsSetup)
  * ```
  *
  * - `NeedsSetup`:第一次启动,什么都没初始化。SetupWizard 走完后跳到 `Unlocked`。
  * - `Locked`:KeyVault 初始化过但 master key 不在内存里,DB 关着。需要解锁才能跳走。
  * - `Unlocked`:master key 在内存里(只在本对象持有,作为 [activeHandle]),DB 开着。
+ * - `Disabled`:用户在 SetupWizard 里选了 Skip。**KeyVault 不存在,DB 不开**,直接进主 app。
+ *   Settings 里能重新启用(走 NeedsSetup → Unlocked 这条线)。
  *
  * ## 锁定时谁负责抹键
  *
@@ -80,24 +87,30 @@ class LockController @Inject constructor(
     private val transition = Mutex()
 
     /**
-     * 启动时调用一次:根据 KeyVault / Legacy passphrase / MigrationMarker 决定初始状态。
+     * 启动时调用一次:根据 KeyVault / Legacy passphrase / MigrationMarker / wizardCompleted
+     * 决定初始状态。
      *
-     * 三态分发(Q4 + Phase 4 #30):
+     * 四态分发(Q4 + Phase 4 #30 + Phase 4 #31):
      *
      * - **Migrating**:`migrationMarker.inProgress == true`(上次迁移中断)**或**
      *   `!isInitialized() && passphraseProvider.hasLegacy()`(v0.3.0 升级)。
      *   走迁移 wizard 或恢复备份引导。
-     * - **NeedsSetup**:全新设备,既没 vault 也没 legacy。走 SetupWizard。
-     * - **Locked**:KeyVault 已初始化(说明已经走过 setup 或迁移)。需要解锁。
+     * - **NeedsSetup**:`!wizardCompleted`(全新设备,或用户从 Settings 重新启用锁)。
+     *   走 SetupWizard。
+     * - **Disabled**:`wizardCompleted && !lockEnabled`(用户曾经选过 Skip)。直接进主 app。
+     * - **Locked**:KeyVault 已初始化 + lockEnabled=true。已经走过 setup 或迁移,需要解锁。
      */
     suspend fun bootstrap() = withContext(Dispatchers.IO) {
         val initialized = keyVault.isInitialized()
         val hasLegacy = passphraseProvider.hasLegacy()
         val migrationInterrupted = migrationMarker.inProgress
+        val prefs = lockPrefs.snapshot()
         val target = when {
             migrationInterrupted -> LockState.Migrating
             !initialized && hasLegacy -> LockState.Migrating
-            !initialized -> LockState.NeedsSetup
+            !prefs.wizardCompleted -> LockState.NeedsSetup
+            !initialized -> LockState.Disabled      // 罕见:wizard 标完成但 vault 没写,容错到 Disabled
+            !prefs.lockEnabled -> LockState.Disabled
             else -> LockState.Locked
         }
         _state.value = target
@@ -122,6 +135,7 @@ class LockController @Inject constructor(
             openDatabaseWith(handle)
             activeHandle = handle
             lockPrefs.setLockEnabled(lockEnabled)
+            lockPrefs.setWizardCompleted(true)
             lockPrefs.setTimeout(timeout)
             lockPrefs.clearBackgroundMarker()
             _state.value = LockState.Unlocked
@@ -153,6 +167,7 @@ class LockController @Inject constructor(
             openDatabaseWithOrWipe(handle)
             activeHandle = handle
             lockPrefs.setLockEnabled(lockEnabled)
+            lockPrefs.setWizardCompleted(true)
             lockPrefs.setTimeout(timeout)
             lockPrefs.clearBackgroundMarker()
             _state.value = LockState.Unlocked
@@ -322,5 +337,123 @@ class LockController @Inject constructor(
         data object Migrating : LockState
         data object Locked : LockState
         data object Unlocked : LockState
+        /** 用户在 SetupWizard 选了 Skip —— KeyVault 不存在,DB 不开,直接进主 app。 */
+        data object Disabled : LockState
+    }
+
+    /**
+     * PIN 解锁失败节流(Q5 类 / Phase 4 #31 决议):
+     * 连续 5 次错误 → 30s 冷却,之后每次再 5 次错误翻倍,封顶 5min。
+     *
+     * **进程内即可**(杀进程就绕过) —— 这是文档化的限制,真要对抗攻击者得写到
+     * EncryptedSharedPreferences,留作 Phase 5+。
+     *
+     * LockScreen 的冷却计时器从这里读;UI 用 [produceState] 每秒 tick 刷新。
+     */
+    @Volatile
+    var cooldownUntilEpochMs: Long = 0L
+        private set
+
+    /** 连续错误计数。冷却期内不再累加 —— 冷却本身就是节流。 */
+    @Volatile
+    private var failedAttempts: Int = 0
+
+    /**
+     * 在 [unlockWithPin] 外面再包一层,做冷却判定 + 失败计数。
+     *
+     * - 冷却期内直接返回 [Result.failure] + [LockException.InCooldown],**不**调
+     *   [keyVault.unlockWithPin] —— 这是节流的核心。
+     * - 成功后清零 `failedAttempts` 和 `cooldownUntilEpochMs`。
+     * - 失败:5/10/15/20 次错误 → 冷却 30s/60s/120s/240s,封顶 5min。
+     *
+     * 跟裸 [unlockWithPin] 的区别:这层对外是"我能不能现在试 PIN",[unlockWithPin] 是
+     * "我把 PIN 给你了,试一下"。冷却期调用 [unlockWithPin] 仍然会消耗一次尝试 —— 这里
+     * 设计成冷却期直接拦截,**不**计入 attempts。
+     */
+    suspend fun attemptUnlockWithPin(pin: CharArray): Result<Unit> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        if (now < cooldownUntilEpochMs) {
+            return@withContext Result.failure(
+                LockException.InCooldown(cooldownUntilEpochMs - now),
+            )
+        }
+        val result = unlockWithPin(pin)
+        // cooldownUntilEpochMs / failedAttempts 是 @Volatile,直接读写安全。
+        // 真正的串行化由 [unlockWithPin] 内部的 transition.withLock 保证:
+        // 两个 attemptUnlockWithPin 并发 → 串行过 unlockWithPin → 各自拿到 result 后
+        // 更新计数,顺序不会乱。
+        if (result.isSuccess) {
+            failedAttempts = 0
+            cooldownUntilEpochMs = 0L
+        } else {
+            failedAttempts++
+            if (failedAttempts >= 5 && failedAttempts % 5 == 0) {
+                cooldownUntilEpochMs = System.currentTimeMillis() + computeBackoff(failedAttempts)
+            }
+        }
+        result
+    }
+
+    /**
+     * backoff 阶梯:5→30s,10→60s,15→120s,20→240s,25+→300s(封顶)。
+     *
+     * `tier = (attempts - 5) / 5`:5 次错 → tier 0,10 次 → tier 1,以此类推。
+     * `30 << tier`:0/1/2/3/4 → 30/60/120/240/480s,再 `coerceAtMost(300)` 卡在 5min。
+     */
+    private fun computeBackoff(attempts: Int): Long {
+        val tier = (attempts - 5) / 5
+        return ((30L shl tier.coerceAtMost(4)).coerceAtMost(300)) * 1000L
+    }
+
+    /**
+     * 测试用:清空 [failedAttempts] 和 [cooldownUntilEpochMs]。
+     *
+     * 用于在测试里"模拟时间过去"——真实的冷却靠 [System.currentTimeMillis] 流逝,
+     * 但单测跑得比 30s 快得多,所以测试需要这个 seam 来重置。
+     */
+    @androidx.annotation.VisibleForTesting
+    fun resetCooldownForTesting() {
+        failedAttempts = 0
+        cooldownUntilEpochMs = 0L
+    }
+
+    /**
+     * 测试用:仅清空 [cooldownUntilEpochMs],**不**动 [failedAttempts]。
+     *
+     * 用于"失败次数累加但模拟冷却已过"的场景 —— 比 [resetCooldownForTesting] 更精细,
+     * 适合测 backoff 阶梯(5/10/15/20/25 次错误的 cool down 各是多少)。
+     */
+    @androidx.annotation.VisibleForTesting
+    fun clearCooldownForTesting() {
+        cooldownUntilEpochMs = 0L
+    }
+
+    /**
+     * 用户在 SetupWizard 第一步选 Skip —— 跳过整个 wizard,本会话内永远不进锁定。
+     *
+     * 与 [finishSetup] 的区别:
+     * - 不接 [KeyVault.MasterKeyHandle](用户没设 PIN)
+     * - 不写 KeyVault(永远 isInitialized()=false)
+     * - 不打开 DB(DB 永远不开 —— 但 wizard 一结束 UI 就要进 Home,这一步需要另外处理)
+     *
+     * **状态推到 [LockState.Disabled]**。下次启动 [bootstrap] 看到 `wizardCompleted=true &&
+     * lockEnabled=false` → 直接进 Disabled → 外层 NavHost 切到 MAIN 路由。
+     *
+     * ⚠️ DB 不打开:Home 进入时 `DatabaseProvider.isOpen()=false` → 调用方需要在
+     * 切到 MAIN 之前显式 open(用空 passphrase 走 v0.3.0 兼容路径,或者从 KeyVault
+     * 派生 master key 开库)。Phase 4 #31 的 AccountBookApp.onCreate 会协调这一点。
+     */
+    suspend fun skipSetup() = withContext(Dispatchers.IO) {
+        transition.withLock {
+            check(_state.value == LockState.NeedsSetup) { "不能在 NeedsSetup 之外调 skipSetup: state=${_state.value}" }
+            lockPrefs.setLockEnabled(false)
+            lockPrefs.setWizardCompleted(true)
+            _state.value = LockState.Disabled
+        }
+    }
+
+    /** 把 wizard 完成标记写回 prefs。 */
+    suspend fun markWizardCompleted() = withContext(Dispatchers.IO) {
+        lockPrefs.setWizardCompleted(true)
     }
 }

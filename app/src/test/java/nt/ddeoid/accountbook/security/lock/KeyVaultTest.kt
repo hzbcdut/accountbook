@@ -190,16 +190,43 @@ class KeyVaultTest {
         vault.initialize(pin, codec)
         SecretBytes.wipe(pin)
 
-        // 任意一词换成另一份熵的对应词,校验位就对不上。
-        val tampered = codec.encode(EntropySource().nextBytes(16)).toMutableList()
-        val otherWord = codec.encode(EntropySource().nextBytes(16))[3]
-        tampered[3] = otherWord
+        // 构造一个有**故意错配校验位**的助记词。
+        //
+        // 直接换词有 1/16 概率凑巧让校验位仍然有效 —— 旧版本这么写就偶发失败。
+        // 这里用"前 11 词来自 sister 熵(byte 0 XOR 0x01)+ 第 12 词保留 good"的方法构造,
+        // 然后用 codec 预校验:必须是 ChecksumMismatch 才用来测 KeyVault,否则换熵重试。
+        //
+        // 100 次重试凑不出一组坏校验位的概率 < (1/16)^100 ≈ 0 —— 测试从概率确定变成**实际**确定。
+        val tampered = buildBadChecksumMnemonic()
+
         try {
             vault.recoverFromMnemonic(tampered, codec)
             fail("应抛 ChecksumMismatch")
         } catch (e: nt.ddeoid.accountbook.security.crypto.MnemonicException.ChecksumMismatch) {
             // 期望路径
         }
+    }
+
+    private fun buildBadChecksumMnemonic(): List<String> {
+        repeat(100) {
+            val goodEntropy = EntropySource().nextBytes(16)
+            // XOR bit 0 of byte 0(在 word 0 的 bits 0-10 范围内)。这样 sister 熵
+            // 只在 bit 0 上与 good 不同 → SHA256 大概率前 4 bit 也不同 →
+            // 用 goodMnemonic[11] 当校验位词会跟 SHA256(sister 部分) 对不上。
+            val sisterEntropy = goodEntropy.copyOf().also {
+                it[0] = (it[0].toInt() xor 0x01).toByte()
+            }
+            val goodMnemonic = codec.encode(goodEntropy)
+            val sisterMnemonic = codec.encode(sisterEntropy)
+            val candidate = (sisterMnemonic.take(11) + goodMnemonic[11])
+            try {
+                codec.decode(candidate)
+                // 候选 mnemonic 校验位居然有效 —— 跳过
+            } catch (e: nt.ddeoid.accountbook.security.crypto.MnemonicException.ChecksumMismatch) {
+                return candidate
+            }
+        }
+        error("100 次重试都没构造出坏校验位助记词 —— 概率上不可能,大概是 EntropySource 出问题")
     }
 
     // --- changePin --------------------------------------------------------

@@ -48,6 +48,19 @@ class LockPrefs @Inject constructor(
         store.edit { it[KEY_LOCK_ENABLED] = enabled }
     }
 
+    /**
+     * 用户是否走完过 wizard(无论选 lock 还是 skip)。
+     *
+     * 用来在 [LockController.bootstrap] 里区分:
+     * - 全新设备:wizardCompleted=false → 走 NeedsSetup
+     * - 用户曾经 skip 过:wizardCompleted=true 且 lockEnabled=false → 走 Disabled
+     *
+     * 不写这一个标志的话,默认 `lockEnabled=false` 会让全新设备直接进 Disabled,绕过 wizard。
+     */
+    suspend fun setWizardCompleted(completed: Boolean) {
+        store.edit { it[KEY_WIZARD_COMPLETED] = completed }
+    }
+
     suspend fun setTimeout(tier: TimeoutTier) {
         store.edit { it[KEY_TIMEOUT_MS] = tier.millis }
     }
@@ -68,9 +81,12 @@ class LockPrefs @Inject constructor(
      * @param lockEnabled 用户**当前**是否启用了应用锁。false 时 LockController 完全
      *   不应该试图锁定 —— 但 [KeyVault.isInitialized] 为 true 时也仍然持有熵,
      *   留作"之后重新启用"用。
+     * @param wizardCompleted 用户是否走完过 SetupWizard(无论选 lock 还是 skip)。
+     *   与 [lockEnabled] 配合判断 bootstrap 时的目标状态。
      */
     data class Snapshot(
         val lockEnabled: Boolean,
+        val wizardCompleted: Boolean,
         val timeoutMs: Long,
         val lastBackgroundedAt: Long,
     ) {
@@ -78,6 +94,7 @@ class LockPrefs @Inject constructor(
             /** [LockController] 初始化时 DataStore 还没值时用的默认档。 */
             val DEFAULT = Snapshot(
                 lockEnabled = false,
+                wizardCompleted = false,
                 timeoutMs = TimeoutTier.IMMEDIATE.millis,
                 lastBackgroundedAt = 0L,
             )
@@ -117,12 +134,14 @@ class LockPrefs @Inject constructor(
 
     private fun Preferences.toSnapshot(): Snapshot = Snapshot(
         lockEnabled = this[KEY_LOCK_ENABLED] ?: false,
+        wizardCompleted = this[KEY_WIZARD_COMPLETED] ?: false,
         timeoutMs = this[KEY_TIMEOUT_MS] ?: TimeoutTier.IMMEDIATE.millis,
         lastBackgroundedAt = this[KEY_LAST_BACKGROUNDED_AT] ?: 0L,
     )
 
     private companion object {
         val KEY_LOCK_ENABLED = booleanPreferencesKey("lock_enabled")
+        val KEY_WIZARD_COMPLETED = booleanPreferencesKey("wizard_completed")
         val KEY_TIMEOUT_MS = longPreferencesKey("lock_timeout_ms")
         val KEY_LAST_BACKGROUNDED_AT = longPreferencesKey("last_backgrounded_at")
 

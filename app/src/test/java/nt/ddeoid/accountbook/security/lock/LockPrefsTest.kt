@@ -36,6 +36,7 @@ class LockPrefsTest {
     fun `Snapshot DEFAULT is locked-off and immediate timeout`() {
         val s = LockPrefs.Snapshot.DEFAULT
         assertFalse(s.lockEnabled)
+        assertFalse("wizardCompleted 默认 false,代表从未走过 wizard", s.wizardCompleted)
         assertEquals(LockPrefs.TimeoutTier.IMMEDIATE.millis, s.timeoutMs)
         assertEquals(0L, s.lastBackgroundedAt)
     }
