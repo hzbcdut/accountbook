@@ -142,6 +142,8 @@
     <string name="settings_import_csv">Import from CSV</string>
     <string name="settings_export_filename_json">AccountBook-backup.json</string>
     <string name="settings_export_filename_csv">AccountBook-accounts.csv</string>
+    <string name="settings_export_encrypted_db">Export encrypted database (full backup)</string>
+    <string name="snackbar_encrypted_export_done">Encrypted DB exported: %.2f MB</string>
     <string name="settings_about_summary">%1$s · local · encrypted · offline</string>
 
     <string name="dialog_export_title">Export backup?</string>

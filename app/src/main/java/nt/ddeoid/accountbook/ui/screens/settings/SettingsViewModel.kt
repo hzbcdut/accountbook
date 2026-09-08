@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nt.ddeoid.accountbook.data.export.BackupExporter
 import nt.ddeoid.accountbook.data.export.BackupImporter
+import nt.ddeoid.accountbook.data.export.EncryptedDatabaseBackup
 import nt.ddeoid.accountbook.data.export.codec.CsvBackupCodec
 import nt.ddeoid.accountbook.data.export.codec.JsonBackupCodec
 import nt.ddeoid.accountbook.data.export.model.AccountBookBackup
@@ -45,6 +46,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val backupExporter: BackupExporter,
     private val backupImporter: BackupImporter,
+    private val encryptedDatabaseBackup: EncryptedDatabaseBackup,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -179,6 +181,53 @@ class SettingsViewModel @Inject constructor(
     fun consumeTransientMessage() {
         _state.update { it.copy(transientMessage = null) }
     }
+
+    // --- 加密 DB 备份(Phase 4 #33) -----------------------------------------
+
+    /**
+     * 用户点 "导出加密数据库" 后的入口 —— 跳一个无 confirm dialog,直接进 SAF。
+     *
+     * 不像明文 JSON/CSV 需要"我已知晓风险"的二次确认 —— 加密 DB 文件本身就是 SQLCipher
+     * 密文,没有 master key 拿不到内容,泄漏风险 = 用户文件泄漏风险。文件名为时间戳,
+     * 用户选位置。
+     */
+    fun onRequestEncryptedDbExport() {
+        _state.update {
+            it.copy(
+                pendingEncryptedExport = PendingEncryptedExport(
+                    suggestedFileName = encryptedDatabaseBackup.defaultFileName(),
+                ),
+                transientMessage = null,
+            )
+        }
+    }
+
+    /** SAF 拿到 URI 之后真正写文件 —— 不走 confirm dialog,直接导出。 */
+    fun onConfirmEncryptedDbExport(resolver: ContentResolver, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val bytes = encryptedDatabaseBackup.exportTo(uri, resolver)
+                val mb = bytes / 1024.0 / 1024.0
+                _state.update {
+                    it.copy(
+                        pendingEncryptedExport = null,
+                        transientMessage = TransientMessage.EncryptedExportDone(mb),
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        pendingEncryptedExport = null,
+                        transientMessage = TransientMessage.ExportFailed(t.message ?: t::class.simpleName.orEmpty()),
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissEncryptedDbExport() {
+        _state.update { it.copy(pendingEncryptedExport = null) }
+    }
 }
 
 // --- UI 状态 -------------------------------------------------------------
@@ -186,6 +235,7 @@ class SettingsViewModel @Inject constructor(
 data class SettingsUiState(
     val pendingExport: PendingExport? = null,
     val pendingImport: PendingImport? = null,
+    val pendingEncryptedExport: PendingEncryptedExport? = null,
     val transientMessage: TransientMessage? = null,
 )
 
@@ -199,6 +249,11 @@ data class PendingImport(
     val isCsv: Boolean,
 )
 
+/** 加密 DB 备份只需要一个 suggested 文件名 + SAF URI。 */
+data class PendingEncryptedExport(
+    val suggestedFileName: String,
+)
+
 enum class ExportFormat(val mime: String, val ext: String) {
     JSON(JsonBackupCodec.MIME_TYPE, JsonBackupCodec.FILE_EXTENSION),
     CSV(CsvBackupCodec.MIME_TYPE, CsvBackupCodec.FILE_EXTENSION),
@@ -210,4 +265,6 @@ sealed interface TransientMessage {
     data class ExportFailed(val error: String) : TransientMessage
     data class ImportFailed(val error: String) : TransientMessage
     data object NoData : TransientMessage
+    /** 加密 DB 备份成功,展示写入的 MB 数。 */
+    data class EncryptedExportDone(val megabytes: Double) : TransientMessage
 }

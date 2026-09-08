@@ -91,6 +91,12 @@ fun SettingsScreen(
             pendingImportUri = uri to (requestedImportFormat ?: ExportFormat.JSON)
         }
     }
+    // 加密 DB 备份(Phase 4 #33)用 application/octet-stream,因为是二进制 .db
+    val createDbLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        if (uri != null) viewModel.onConfirmEncryptedDbExport(resolver, uri)
+    }
 
     // 拿到 create-launcher 的 URI 后,真正调 ViewModel 写文件
     LaunchedEffect(pendingExportUri) {
@@ -121,6 +127,7 @@ fun SettingsScreen(
             is TransientMessage.ExportFailed -> context.getString(R.string.snackbar_export_failed, msg.error)
             is TransientMessage.ImportFailed -> context.getString(R.string.snackbar_import_failed, msg.error)
             TransientMessage.NoData -> context.getString(R.string.dialog_export_no_data)
+            is TransientMessage.EncryptedExportDone -> context.getString(R.string.snackbar_encrypted_export_done, msg.megabytes)
         }
         snackbarHostState.showSnackbar(text)
         viewModel.consumeTransientMessage()
@@ -157,6 +164,14 @@ fun SettingsScreen(
                 onImportCsv = {
                     requestedImportFormat = ExportFormat.CSV
                     openAnyLauncher.launch(arrayOf(ExportFormat.CSV.mime, ExportFormat.JSON.mime, "*/*"))
+                },
+                onExportEncryptedDb = {
+                    viewModel.onRequestEncryptedDbExport()
+                    createDbLauncher.launch(
+                        java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss", java.util.Locale.US)
+                            .format(java.util.Date())
+                            .let { "AccountBook-db-$it.db" },
+                    )
                 },
             )
             AppearanceSection()
@@ -246,6 +261,7 @@ private fun DataSection(
     onExportCsv: () -> Unit,
     onImportJson: () -> Unit,
     onImportCsv: () -> Unit,
+    onExportEncryptedDb: () -> Unit,
 ) {
     SectionCard(title = stringResource(R.string.settings_section_data)) {
         ActionRow(
@@ -258,6 +274,12 @@ private fun DataSection(
             icon = Icons.Default.Download,
             label = stringResource(R.string.settings_export_csv),
             onClick = onExportCsv,
+        )
+        HorizontalDivider()
+        ActionRow(
+            icon = Icons.Default.Download,
+            label = stringResource(R.string.settings_export_encrypted_db),
+            onClick = onExportEncryptedDb,
         )
         HorizontalDivider()
         ActionRow(

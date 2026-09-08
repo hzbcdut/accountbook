@@ -147,6 +147,8 @@
     <string name="settings_import_csv">从 CSV 导入</string>
     <string name="settings_export_filename_json">AccountBook-backup.json</string>
     <string name="settings_export_filename_csv">AccountBook-accounts.csv</string>
+    <string name="settings_export_encrypted_db">导出加密数据库(整库备份)</string>
+    <string name="snackbar_encrypted_export_done">加密数据库已导出:%.2f MB</string>
     <string name="settings_about_summary">%1$s · 本地、加密、离线</string>
 
     <string name="dialog_export_title">导出备份?</string>
