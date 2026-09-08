@@ -6,6 +6,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
 import nt.ddeoid.accountbook.data.local.MigrationMarker
 import nt.ddeoid.accountbook.security.crypto.Bip39WordListProvider
@@ -73,4 +76,19 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun providePinKdfIterations(): Int = PinKdf.PRODUCTION_ITERATIONS
+
+    /**
+     * 给 [nt.ddeoid.accountbook.security.lock.LockController] 用的应用级 scope。
+     *
+     * `LockController` 自己的字段里需要 `CoroutineScope` 来跑 `bootstrap()` /
+     * `lock()` / `unlockWith*()` 这些 IO 操作。原本 Kotlin 默认值是
+     * `CoroutineScope(Dispatchers.IO)`,但 Hilt 不读默认值,所以这里显式提供一份。
+     *
+     * 用 [SupervisorJob] + [Dispatchers.IO]:子任务失败不互相取消,IO 线程池适合
+     * SQLCipher / Keystore 这种会阻塞的活。
+     */
+    @Provides
+    @Singleton
+    fun provideLockControllerScope(): CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
 }
