@@ -72,6 +72,10 @@
     <string name="wizard_verify_wrong">Wrong word, check your transcription</string>
     <string name="wizard_finishing">Finishing setup…</string>
 
+    <!-- Phase 4 #31: BiometricPrompt text (for BiometricGate) -->
+    <string name="biometric_title">Unlock AccountBook</string>
+    <string name="biometric_subtitle">Use biometric or device PIN / pattern / password</string>
+
     <!-- Phase 4 #31: Migration wizard (v0.3.0 upgrade users) -->
     <string name="migration_pin_title">Set a new PIN for AccountBook</string>
     <string name="migration_pin_body">At least %1$d characters. After upgrading from v0.3.0, the local database will be re-encrypted with a key derived from this PIN. Your existing data is preserved.</string>

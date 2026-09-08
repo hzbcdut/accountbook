@@ -77,6 +77,10 @@
     <string name="wizard_verify_wrong">词不对,检查一下抄写</string>
     <string name="wizard_finishing">设置完成中…</string>
 
+    <!-- Phase 4 #31: BiometricPrompt 文案(给 BiometricGate 用) -->
+    <string name="biometric_title">解锁 AccountBook</string>
+    <string name="biometric_subtitle">使用生物识别或设备 PIN / 图案 / 密码</string>
+
     <!-- Phase 4 #31: 迁移向导(老 v0.3.0 升级用户) -->
     <string name="migration_pin_title">为账号簿设置一个新 PIN</string>
     <string name="migration_pin_body">至少 %1$d 位字符。从 v0.3.0 升级到这个版本后,数据库会用这个 PIN 派生的新密钥重新加密。旧数据不会丢。</string>
