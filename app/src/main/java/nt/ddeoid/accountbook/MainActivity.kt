@@ -12,7 +12,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import dagger.hilt.android.AndroidEntryPoint
-import nt.ddeoid.accountbook.ui.navigation.AccountBookNavHost
+import nt.ddeoid.accountbook.ui.navigation.MainNavHost
 import nt.ddeoid.accountbook.ui.theme.AccountBookTheme
 import nt.ddeoid.accountbook.ui.theme.ThemeViewModel
 
@@ -38,7 +38,7 @@ class MainActivity : FragmentActivity() {
             val themePref by themeVm.preference.collectAsState()
             AccountBookTheme(preference = themePref) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AccountBookNavHost()
+                    MainNavHost()
                 }
             }
         }

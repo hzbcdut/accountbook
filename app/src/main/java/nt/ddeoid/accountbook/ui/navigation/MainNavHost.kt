@@ -12,17 +12,24 @@ import nt.ddeoid.accountbook.ui.screens.home.HomeScreen
 import nt.ddeoid.accountbook.ui.screens.settings.SettingsScreen
 
 /**
- * 单 Activity 多 Composable 导航。
+ * 主 app 的内层 NavHost(Q14=B 双 NavHost 架构的**内层**)。
+ *
+ * 外层 [RootNavHost] 在锁定 / SetupWizard / Recovery 阶段会**完全绕过这个 Composable**
+ * (通过 `popUpTo(graph) { inclusive = true }` 把它从组合树里拆掉)。所以 back 键在锁
+ * 定状态下不会带回 Home —— 直接退出 app。
+ *
+ * 名字叫 "Main" 是因为它就是"主 app 那块":只在 [nt.ddeoid.accountbook.security.lock.LockState.Unlocked]
+ * 和 [nt.ddeoid.accountbook.security.lock.LockState.Disabled] 两个状态下才被组合。
  *
  * 路由:
  * - `home`                              主界面
  * - `account_detail/{accountId}`         详情页
  * - `settings`                          设置(导出 / 导入 / 主题 / 关于)
  *
- * Phase 4+ 会加 `lock` / `account_edit/{id}`。
+ * Phase 4+ 会在 Settings 里加 `account_edit/{id}`。
  */
 @Composable
-fun AccountBookNavHost(
+fun MainNavHost(
     navController: NavHostController = rememberNavController(),
 ) {
     NavHost(navController = navController, startDestination = Routes.HOME) {
