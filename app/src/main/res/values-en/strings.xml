@@ -34,6 +34,8 @@
     <string name="lock_subtitle">Authenticate to continue</string>
     <string name="lock_action_unlock">Unlock</string>
     <string name="lock_action_use_pin">Use PIN</string>
+    <string name="lock_action_use_biometric">Use biometric</string>
+    <string name="lock_action_forgot_pin">Forgot PIN? Use recovery phrase</string>
     <string name="shortcut_lock">Lock AccountBook</string>
 
     <!-- Phase 4 #31: LockError messages (consumed by LockError.kt) -->

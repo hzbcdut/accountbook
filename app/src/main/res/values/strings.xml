@@ -39,6 +39,8 @@
     <string name="lock_subtitle">请验证以继续</string>
     <string name="lock_action_unlock">解锁</string>
     <string name="lock_action_use_pin">使用 PIN</string>
+    <string name="lock_action_use_biometric">使用生物识别</string>
+    <string name="lock_action_forgot_pin">忘记 PIN?用助记词恢复</string>
     <string name="shortcut_lock">锁定 AccountBook</string>
 
     <!-- Phase 4 #31: LockError 文案(给 LockError.kt 用) -->

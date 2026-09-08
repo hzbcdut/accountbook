@@ -91,7 +91,15 @@ fun RootNavHost(
     ) {
         composable(RootRoutes.SETUP_WIZARD) { SetupWizardPlaceholder() }
         composable(RootRoutes.MIGRATION_WIZARD) { MigrationWizardPlaceholder() }
-        composable(RootRoutes.LOCK_SCREEN) { LockScreenPlaceholder() }
+        composable(RootRoutes.LOCK_SCREEN) {
+            LockScreen(
+                onForgotPin = {
+                    navController.navigate(RootRoutes.RECOVERY) {
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
         composable(RootRoutes.RECOVERY) { RecoveryPlaceholder() }
         composable(RootRoutes.MAIN) { MainNavHost() }
     }
