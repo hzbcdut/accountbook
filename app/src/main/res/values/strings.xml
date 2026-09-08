@@ -40,4 +40,46 @@
     <string name="lock_action_unlock">解锁</string>
     <string name="lock_action_use_pin">使用 PIN</string>
     <string name="shortcut_lock">锁定 AccountBook</string>
+
+    <!-- Phase 2: 主界面 / 编辑 / 详情 -->
+    <string name="search_placeholder">搜索平台 / 账号 / 备注</string>
+    <string name="action_clear">清除</string>
+    <string name="fab_new_account">新增账号</string>
+    <string name="empty_title">还没有账号</string>
+    <string name="empty_subtitle">点击右下角 + 开始记录第一条</string>
+    <string name="empty_after_filter_title">没有匹配的账号</string>
+    <string name="empty_after_filter_subtitle">试试调整搜索词或清除标签筛选</string>
+    <string name="account_count_summary">共 %1$d 条</string>
+
+    <string name="sheet_new_title">新增账号</string>
+    <string name="sheet_edit_title">编辑账号</string>
+    <string name="hint_platform">平台,如 微信 / GitHub</string>
+    <string name="hint_account">账号(手机号或邮箱)</string>
+    <string name="hint_notes">备注(可选)</string>
+    <string name="hint_registered_at">yyyy-MM-dd,留空表示不记得</string>
+    <string name="action_pick_date">选择日期</string>
+    <string name="action_clear_date">清除日期</string>
+    <string name="error_platform_required">平台不能为空</string>
+    <string name="error_account_required">账号不能为空</string>
+
+    <string name="menu_copy_account">复制账号</string>
+    <string name="menu_set_inactive">标记停用</string>
+    <string name="menu_set_active">标记启用</string>
+    <string name="dialog_delete_title">删除账号?</string>
+    <string name="dialog_delete_message">将删除「%1$s · %2$s」,且不可恢复。</string>
+    <string name="snackbar_copied">账号已复制到剪贴板</string>
+
+    <string name="detail_title">账号详情</string>
+    <string name="detail_field_platform">平台</string>
+    <string name="detail_field_account">账号</string>
+    <string name="detail_field_type">类型</string>
+    <string name="detail_field_registered_at">注册时间</string>
+    <string name="detail_field_notes">备注</string>
+    <string name="detail_field_tags">标签</string>
+    <string name="detail_field_created_at">创建于</string>
+    <string name="detail_field_updated_at">更新于</string>
+    <string name="detail_field_status">状态</string>
+    <string name="status_active">启用</string>
+    <string name="status_inactive">已停用</string>
+    <string name="detail_deleted">该账号已被删除</string>
 </resources>

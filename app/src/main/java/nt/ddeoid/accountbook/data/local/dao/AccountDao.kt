@@ -1,9 +1,12 @@
 package nt.ddeoid.accountbook.data.local.dao
 
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Insert
+import androidx.room.Junction
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Relation
 import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
@@ -14,21 +17,33 @@ import nt.ddeoid.accountbook.data.local.entity.TagEntity
 /**
  * Account 表的访问层。
  *
- * 注意:
- * - 全文搜索 SQL 留给 Phase 2 接 FTS4;Phase 1 仅做最简单的 `LIKE`。
- * - 标签筛选走 [accountsWithTags] 这条联表查询。
+ * 涉及多表的关联查询(账号 + 标签)走 [AccountWithTags],Phase 2 用 Room 的 @Relation/Junction 自动 join。
  */
 @Dao
 interface AccountDao {
 
+    /**
+     * 所有"启用中"的账号,带它们的标签。Phase 2 主界面直接消费这个 Flow。
+     *
+     * 排序:按平台名字典序,组内按 updated_at 倒序。
+     */
+    @Transaction
     @Query(
         """
-        SELECT a.* FROM accounts a
-        WHERE a.is_active = 1
-        ORDER BY a.platform ASC, a.updated_at DESC
+        SELECT * FROM accounts
+        WHERE is_active = 1
+        ORDER BY platform COLLATE NOCASE ASC, updated_at DESC
         """,
     )
-    fun observeActiveAccounts(): Flow<List<AccountEntity>>
+    fun observeActiveAccountsWithTags(): Flow<List<AccountWithTags>>
+
+    @Transaction
+    @Query("SELECT * FROM accounts WHERE id = :id LIMIT 1")
+    fun observeWithTags(id: String): Flow<AccountWithTags?>
+
+    @Transaction
+    @Query("SELECT * FROM accounts WHERE id = :id LIMIT 1")
+    suspend fun findWithTags(id: String): AccountWithTags?
 
     @Query("SELECT * FROM accounts WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): AccountEntity?
@@ -71,3 +86,20 @@ interface AccountDao {
         tagIds.forEach { insertTagCrossRef(AccountTagCrossRef(accountId, it)) }
     }
 }
+
+/**
+ * 账号 + 该账号上挂的所有标签。Room 在 [AccountDao.observeActiveAccountsWithTags] 里自动 join。
+ */
+data class AccountWithTags(
+    @Embedded val account: AccountEntity,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "id",
+        associateBy = Junction(
+            value = AccountTagCrossRef::class,
+            parentColumn = "account_id",
+            entityColumn = "tag_id",
+        ),
+    )
+    val tags: List<TagEntity>,
+)

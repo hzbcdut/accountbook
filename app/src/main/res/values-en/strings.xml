@@ -35,4 +35,46 @@
     <string name="lock_action_unlock">Unlock</string>
     <string name="lock_action_use_pin">Use PIN</string>
     <string name="shortcut_lock">Lock AccountBook</string>
+
+    <!-- Phase 2: Home / Edit / Detail -->
+    <string name="search_placeholder">Search platform / account / notes</string>
+    <string name="action_clear">Clear</string>
+    <string name="fab_new_account">New account</string>
+    <string name="empty_title">No accounts yet</string>
+    <string name="empty_subtitle">Tap the + button to add your first one</string>
+    <string name="empty_after_filter_title">No matches</string>
+    <string name="empty_after_filter_subtitle">Try adjusting the search or clearing tag filters</string>
+    <string name="account_count_summary">%1$d total</string>
+
+    <string name="sheet_new_title">New account</string>
+    <string name="sheet_edit_title">Edit account</string>
+    <string name="hint_platform">Platform, e.g. WeChat / GitHub</string>
+    <string name="hint_account">Account (phone or email)</string>
+    <string name="hint_notes">Notes (optional)</string>
+    <string name="hint_registered_at">yyyy-MM-dd, leave blank if unknown</string>
+    <string name="action_pick_date">Pick date</string>
+    <string name="action_clear_date">Clear date</string>
+    <string name="error_platform_required">Platform is required</string>
+    <string name="error_account_required">Account is required</string>
+
+    <string name="menu_copy_account">Copy account</string>
+    <string name="menu_set_inactive">Mark inactive</string>
+    <string name="menu_set_active">Mark active</string>
+    <string name="dialog_delete_title">Delete account?</string>
+    <string name="dialog_delete_message">This will permanently delete \"%1$s · %2$s\".</string>
+    <string name="snackbar_copied">Account copied to clipboard</string>
+
+    <string name="detail_title">Account detail</string>
+    <string name="detail_field_platform">Platform</string>
+    <string name="detail_field_account">Account</string>
+    <string name="detail_field_type">Type</string>
+    <string name="detail_field_registered_at">Registered on</string>
+    <string name="detail_field_notes">Notes</string>
+    <string name="detail_field_tags">Tags</string>
+    <string name="detail_field_created_at">Created</string>
+    <string name="detail_field_updated_at">Updated</string>
+    <string name="detail_field_status">Status</string>
+    <string name="status_active">Active</string>
+    <string name="status_inactive">Inactive</string>
+    <string name="detail_deleted">This account has been deleted</string>
 </resources>

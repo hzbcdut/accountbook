@@ -4,8 +4,12 @@
 
 **100% 本地存储 · 端到端加密 · 完全离线 · 单人使用**
 
-> ⚠️ Phase 1 (v0.1.0) — 项目骨架已就绪,SQLCipher 加密的 Room 数据库已通,
-> 平台目录 43 个 + 标签 6 个种子已写入。
+[![Build](https://github.com/hzbcdut/accountbook/actions/workflows/build.yml/badge.svg)](https://github.com/hzbcdut/accountbook/actions/workflows/build.yml)
+[![Release](https://github.com/hzbcdut/accountbook/actions/workflows/release.yml/badge.svg)](https://github.com/hzbcdut/accountbook/actions/workflows/release.yml)
+[![Latest](https://img.shields.io/github/v/release/hzbcdut/accountbook)](https://github.com/hzbcdut/accountbook/releases/latest)
+
+> ⚠️ Phase 1 (v0.1.1) — 项目骨架已就绪,SQLCipher 加密的 Room 数据库已通,
+> 平台目录 43 个 + 标签 6 个种子已写入,**模拟器实测启动 + 种子数据 OK**。
 > 真正的 UI 录入/编辑/搜索/导入导出 在 Phase 2+。
 
 ## 为什么做这个
@@ -52,6 +56,24 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
 > ⚠️ debug APK 用的是 Android Studio 默认 debug keystore 签名,生产环境使用请配置 `signingConfigs` 替换为正式 keystore。
+
+## CI/CD
+
+GitHub Actions 在以下时机自动触发:
+
+| Workflow | 触发 | 行为 |
+|---|---|---|
+| [`.github/workflows/build.yml`](.github/workflows/build.yml) | push / PR 到 main | assembleDebug + unit test + 上传 APK artifact |
+| [`.github/workflows/release.yml`](.github/workflows/release.yml) | push tag `v*` | assembleDebug + 创建 GitHub Release + 上传 APK + SHA256 |
+
+发布新版本只需:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+CI 会自动构建 + 创建 release + 上传 APK,无需手动跑 `gh release create`。
 
 ## 隐私
 
