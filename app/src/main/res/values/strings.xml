@@ -41,6 +41,16 @@
     <string name="lock_action_use_pin">使用 PIN</string>
     <string name="shortcut_lock">锁定 AccountBook</string>
 
+    <!-- Phase 4 #31: LockError 文案(给 LockError.kt 用) -->
+    <string name="lock_error_wrong_pin">PIN 错误,请重试</string>
+    <string name="lock_error_cooldown">请稍候 %1$d 秒后再试</string>
+    <string name="lock_error_database_corrupted">数据已损坏,请从备份恢复</string>
+    <string name="lock_error_biometric_invalidated">生物识别凭据已失效,请改用 PIN 或助记词解锁</string>
+    <string name="lock_error_mnemonic_unknown_word">第 %1$d 个词 \"%2$s\" 不在词表里</string>
+    <string name="lock_error_mnemonic_wrong_count">应为 12 个词,实际 %1$d 个</string>
+    <string name="lock_error_mnemonic_checksum">助记词无效:检查是否漏词、顺序错、或抄错了某个词</string>
+    <string name="lock_error_unknown">发生未知错误:%1$s</string>
+
     <!-- Phase 2: 主界面 / 编辑 / 详情 -->
     <string name="search_placeholder">搜索平台 / 账号 / 备注</string>
     <string name="action_clear">清除</string>

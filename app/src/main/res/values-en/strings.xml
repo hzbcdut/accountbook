@@ -36,6 +36,16 @@
     <string name="lock_action_use_pin">Use PIN</string>
     <string name="shortcut_lock">Lock AccountBook</string>
 
+    <!-- Phase 4 #31: LockError messages (consumed by LockError.kt) -->
+    <string name="lock_error_wrong_pin">Wrong PIN, please try again</string>
+    <string name="lock_error_cooldown">Please wait %1$d seconds before trying again</string>
+    <string name="lock_error_database_corrupted">Data is corrupted, please restore from backup</string>
+    <string name="lock_error_biometric_invalidated">Biometric credentials are no longer valid; please use PIN or recovery phrase instead</string>
+    <string name="lock_error_mnemonic_unknown_word">Word %1$d (\"%2$s\") is not in the word list</string>
+    <string name="lock_error_mnemonic_wrong_count">Expected 12 words, got %1$d</string>
+    <string name="lock_error_mnemonic_checksum">Invalid recovery phrase: check for missing words, wrong order, or a typo</string>
+    <string name="lock_error_unknown">Unexpected error: %1$s</string>
+
     <!-- Phase 2: Home / Edit / Detail -->
     <string name="search_placeholder">Search platform / account / notes</string>
     <string name="action_clear">Clear</string>
