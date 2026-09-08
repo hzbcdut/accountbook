@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
 import nt.ddeoid.accountbook.data.local.DatabaseProvider
 import nt.ddeoid.accountbook.data.local.MigrationMarker
+import nt.ddeoid.accountbook.data.seed.SeedDataInitializer
 import nt.ddeoid.accountbook.security.crypto.MasterKeyFactory
 import nt.ddeoid.accountbook.security.crypto.MnemonicCodec
 import nt.ddeoid.accountbook.security.crypto.SecretBytes
@@ -71,6 +72,7 @@ class LockController @Inject constructor(
     private val mnemonicCodec: MnemonicCodec,
     private val passphraseProvider: DatabasePassphraseProvider,
     private val migrationMarker: MigrationMarker,
+    private val seedDataInitializer: SeedDataInitializer,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
 ) {
 
@@ -107,9 +109,11 @@ class LockController @Inject constructor(
         val prefs = lockPrefs.snapshot()
         val target = when {
             migrationInterrupted -> LockState.Migrating
-            !initialized && hasLegacy -> LockState.Migrating
+            // Phase 4 #37:区分"v0.3.0 真升级"和"fresh-install Skip 后产生了 legacy passphrase"。
+            // 后者的 wizardCompleted=true(用户已走完 wizard 选了 Skip),应当走 Disabled 而不是 Migrating。
+            !initialized && hasLegacy && !prefs.wizardCompleted -> LockState.Migrating
             !prefs.wizardCompleted -> LockState.NeedsSetup
-            !initialized -> LockState.Disabled      // 罕见:wizard 标完成但 vault 没写,容错到 Disabled
+            !initialized -> LockState.Disabled      // Skip from fresh install (wizardCompleted=true, lockEnabled=false)
             !prefs.lockEnabled -> LockState.Disabled
             else -> LockState.Locked
         }
@@ -448,8 +452,49 @@ class LockController @Inject constructor(
             check(_state.value == LockState.NeedsSetup) { "不能在 NeedsSetup 之外调 skipSetup: state=${_state.value}" }
             lockPrefs.setLockEnabled(false)
             lockPrefs.setWizardCompleted(true)
+            // Phase 4 #37 热修复:Skip 路径必须把库打开 + 播种 —— 不然 Home 进入后所有
+            // 写操作都会在 [DatabaseProvider.requireDatabase] 抛 DatabaseNotOpenException,
+            // 导致保存账号时闪退;平台下拉框也会是空的。
+            //
+            // 设计上[DatabaseBootstrap.openWithLegacyKey]对全新设备(没有 legacy 口令)
+            // 不做任何事,因为它假设"全新设备 → 走 SetupWizard → 不会 Skip"。但 #31 加
+            // 了 Skip 按钮之后,这个假设破了。Skip 之后的状态机分支没有"开库"这个动作,
+            // 需要补上。
+            //
+            // 行为:用 passphraseProvider.getOrCreate() 生成 32 字节随机口令并开库,
+            // 等价于 Phase 1 / v0.3.0 的默认行为 —— 库依然用 EncryptedSharedPreferences
+            // 里的随机串加密,只是**用户没有** PIN 派生路径。
+            val justOpened = ensureDatabaseOpen()
+            if (justOpened) seedDataInitializer.initialize()
             _state.value = LockState.Disabled
         }
+    }
+
+    /**
+     * Skip 路径的开库兜底:仅在库尚未打开时执行,生成 legacy 口令并打开 DB。
+     *
+     * 升级用户(hasLegacy=true)由 AccountBookApp.onCreate 里调到的
+     * [nt.ddeoid.accountbook.data.local.DatabaseBootstrap.openWithLegacyKey] 处理,
+     * 那条路径已经开过库了,这里就是 no-op。
+     *
+     * @return true 表示本次调用**实际开了库**(全新设备 / fresh install),
+     *         调用方据此决定要不要播种;false 表示库已经由其他路径打开,
+     *         不需要再播种。
+     */
+    private fun ensureDatabaseOpen(): Boolean {
+        if (databaseProvider.isOpen) return false
+        // 没设过应用锁 → 不会有 vault。check 一下,把状态写明,以后 vault 路径开了锁
+        // 再走 openDatabaseWith。
+        check(!keyVault.isInitialized()) {
+            "已启用应用锁的设备不该走 Skip:KeyVault 已初始化"
+        }
+        val passphrase = SecretBytes(passphraseProvider.getOrCreate())
+        try {
+            databaseProvider.open(passphrase)
+        } finally {
+            passphrase.wipe()
+        }
+        return true
     }
 
     /** 把 wizard 完成标记写回 prefs。 */

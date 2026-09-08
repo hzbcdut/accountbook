@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.runTest
 import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
 import nt.ddeoid.accountbook.data.local.DatabaseProvider
 import nt.ddeoid.accountbook.data.local.MigrationMarker
+import nt.ddeoid.accountbook.data.seed.SeedDataInitializer
 import nt.ddeoid.accountbook.security.crypto.MnemonicException
 import nt.ddeoid.accountbook.security.crypto.MnemonicCodec
 import org.junit.Assert.assertEquals
@@ -37,6 +38,7 @@ class LockControllerTest {
     private lateinit var mnemonicCodec: MnemonicCodec
     private lateinit var passphraseProvider: DatabasePassphraseProvider
     private lateinit var migrationMarker: MigrationMarker
+    private lateinit var seedDataInitializer: SeedDataInitializer
     private lateinit var controller: LockController
 
     @Before
@@ -47,11 +49,13 @@ class LockControllerTest {
         mnemonicCodec = mockk(relaxed = true)
         passphraseProvider = mockk(relaxed = true)
         migrationMarker = mockk(relaxed = true)
+        seedDataInitializer = mockk(relaxed = true)
         // 默认 snapshot = DEFAULT,方便大部分测试直接走"全新设备"路径
         coEvery { lockPrefs.snapshot() } returns LockPrefs.Snapshot.DEFAULT
         every { migrationMarker.inProgress } returns false
         every { keyVault.isInitialized() } returns false
         every { passphraseProvider.hasLegacy() } returns false
+        every { databaseProvider.isOpen } returns false
         controller = LockController(
             databaseProvider = databaseProvider,
             keyVault = keyVault,
@@ -59,6 +63,7 @@ class LockControllerTest {
             mnemonicCodec = mnemonicCodec,
             passphraseProvider = passphraseProvider,
             migrationMarker = migrationMarker,
+            seedDataInitializer = seedDataInitializer,
         )
     }
 
@@ -81,8 +86,24 @@ class LockControllerTest {
     fun `bootstrap with legacy passphrase and no vault goes to Migrating`() = runTest {
         every { keyVault.isInitialized() } returns false
         every { passphraseProvider.hasLegacy() } returns true
+        // 默认 wizardCompleted = false → 真的是 v0.3.0 升级 → Migrating
         controller.bootstrap()
         assertEquals(LockController.LockState.Migrating, controller.state.value)
+    }
+
+    @Test
+    fun `bootstrap with legacy passphrase and wizardCompleted goes to Disabled`() = runTest {
+        // Phase 4 #37 regression guard:fresh-install Skip 会产生一个 legacy passphrase
+        // (用于开库),但 wizardCompleted=true 说明是 Skip,不是 v0.3.0 升级。
+        // 这种情况下不应进 Migrating,应该直接 Disabled。
+        every { keyVault.isInitialized() } returns false
+        every { passphraseProvider.hasLegacy() } returns true
+        coEvery { lockPrefs.snapshot() } returns LockPrefs.Snapshot.DEFAULT.copy(
+            wizardCompleted = true,
+            lockEnabled = false,
+        )
+        controller.bootstrap()
+        assertEquals(LockController.LockState.Disabled, controller.state.value)
     }
 
     @Test
@@ -121,8 +142,26 @@ class LockControllerTest {
             lockPrefs.setLockEnabled(false)
             lockPrefs.setWizardCompleted(true)
         }
-        // 关键:skip 不应打开 DB
+        // 关键 (Phase 4 #37):Skip 必须把库打开 + 播种,否则 Home 进入后所有写操作
+        // 会在 requireDatabase() 抛 DatabaseNotOpenException,导致保存账号时闪退。
+        coVerifyOrder {
+            databaseProvider.open(any())
+            seedDataInitializer.initialize()
+        }
+    }
+
+    @Test
+    fun `skipSetup does not reopen an already-open database`() = runTest {
+        controller.bootstrap()   // → NeedsSetup
+        // 模拟升级用户:AccountBookApp.onCreate 里的 openWithLegacyKey 已经开过库了
+        every { databaseProvider.isOpen } returns true
+
+        controller.skipSetup()
+
+        assertEquals(LockController.LockState.Disabled, controller.state.value)
         coVerify(exactly = 0) { databaseProvider.open(any()) }
+        // 库已开 → 不需要再播种
+        coVerify(exactly = 0) { seedDataInitializer.initialize() }
     }
 
     @Test
