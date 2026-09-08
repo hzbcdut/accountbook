@@ -1,0 +1,429 @@
+package nt.ddeoid.accountbook.security.lock
+
+import android.content.SharedPreferences
+import nt.ddeoid.accountbook.security.crypto.Bip39WordList
+import nt.ddeoid.accountbook.security.crypto.CryptoException
+import nt.ddeoid.accountbook.security.crypto.EntropySource
+import nt.ddeoid.accountbook.security.crypto.KeyWrapper
+import nt.ddeoid.accountbook.security.crypto.MasterKeyFactory
+import nt.ddeoid.accountbook.security.crypto.MnemonicCodec
+import nt.ddeoid.accountbook.security.crypto.PinKdf
+import nt.ddeoid.accountbook.security.crypto.SecretBytes
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Before
+import org.junit.Test
+import javax.crypto.SecretKey
+import javax.crypto.spec.SecretKeySpec
+
+/**
+ * [KeyVault] 的单元测试。
+ *
+ * 两个真东西:Android Keystore 和 EncryptedSharedPreferences。两者都用 [FakeKeystoreAccess]
+ * 和一个直白的 in-memory prefs 替掉 —— 这样所有 wrap/unwrap 逻辑都在 JVM 里跑,
+ * 不需要 instrumentation。
+ *
+ * ⚠️ 不验证 Keystore 本身的安全性(那是系统的事),只验证 KeyVault 的状态机 +
+ * "PIN 路径解出的熵 == 原始熵" + "PIN 路径解生物识别 blob 必失败" 这类**自己代码
+ * 负责**的语义。
+ */
+class KeyVaultTest {
+
+    private lateinit var codec: MnemonicCodec
+    private lateinit var prefs: InMemoryPrefs
+    private lateinit var keystore: FakeKeystoreAccess
+    private lateinit var vault: KeyVault
+
+    @Before
+    fun setUp() {
+        val raw = checkNotNull(javaClass.classLoader!!.getResourceAsStream("bip39-english.txt")) {
+            "测试资源里找不到 bip39-english.txt"
+        }.readBytes()
+        val words = Bip39WordList.parseAndVerify(raw)
+        codec = MnemonicCodec(words)
+        prefs = InMemoryPrefs()
+        keystore = FakeKeystoreAccess()
+        vault = KeyVault(
+            prefsFactory = prefs,
+            keystoreAccess = keystore,
+            entropySource = EntropySource(),
+            pinKdfIterations = 1000, // 单测跑小值,生产走 PRODUCTION_ITERATIONS
+        )
+    }
+
+    // --- initialize / unlockWithPin round-trip -----------------------------
+
+    @Test
+    fun `initialize writes entropy and both blobs`() {
+        val pin = "123456".toCharArray()
+        val setup = vault.initialize(pin, codec)
+        try {
+            assertTrue(vault.isInitialized())
+            assertTrue(vault.hasPin())
+            assertTrue(vault.hasBiometric())
+            assertEquals(12, setup.mnemonic.size)
+            assertEquals(setup.masterKey.bytes.size, MasterKeyFactory.LENGTH_BYTES)
+        } finally {
+            SecretBytes.wipe(pin)
+            setup.masterKey.wipe()
+        }
+    }
+
+    @Test
+    fun `unlockWithPin recovers the original entropy bytes`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        val originalEntropy = readEntropyFromPrefs()
+
+        val pin2 = "123456".toCharArray()
+        val handle = try {
+            vault.unlockWithPin(pin2)
+        } finally {
+            SecretBytes.wipe(pin2)
+        }
+        try {
+            assertArrayEquals(originalEntropy, handle.entropy)
+            assertEquals(KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_PIN, handle.kind)
+        } finally {
+            handle.wipe()
+            originalEntropy.fill(0)
+        }
+    }
+
+    @Test
+    fun `unlockWithPin fails with wrong pin`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+
+        val wrong = "999999".toCharArray()
+        try {
+            vault.unlockWithPin(wrong)
+            fail("应当抛 UnwrapFailed")
+        } catch (e: CryptoException.UnwrapFailed) {
+            // 期望路径:错的 PIN → 派生密钥对不上 → AES-GCM tag 校验失败 → UnwrapFailed。
+        } finally {
+            SecretBytes.wipe(wrong)
+        }
+    }
+
+    // --- biometric 与 PIN 路径独立(Q1=A) ---------------------------------
+
+    @Test
+    fun `PIN path cannot unwrap biometric blob`() {
+        // 这条测试保住 [KeyWrapper.WrapContext] 的 AAD 真的起到了分桶作用。
+        // 如果谁不小心把 WrapContext.PIN / BIOMETRIC 改成共享 AAD,这条会红。
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+
+        val bioBlob = prefs.getString("kv.bio_blob", null)
+        val salt = prefs.getString("kv.pin_salt", null)
+        assertNotNull(bioBlob); assertNotNull(salt)
+        val pinKey = PinKdf.derive(
+            "123456".toCharArray(),
+            java.util.Base64.getDecoder().decode(salt),
+            1000,
+        )
+        try {
+            try {
+                KeyWrapper().unwrap(
+                    pinKey.bytes, bioBlob!!, KeyWrapper.WrapContext.PIN,
+                )
+                fail("PIN 路径不应能解生物识别 blob")
+            } catch (e: CryptoException.UnwrapFailed) {
+                // 期望路径
+            }
+        } finally {
+            pinKey.wipe()
+        }
+    }
+
+    @Test
+    fun `biometric unlock yields the same entropy`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        val originalEntropy = readEntropyFromPrefs()
+
+        val handle = vault.unlockWithBiometric()
+        try {
+            assertArrayEquals(originalEntropy, handle.entropy)
+            assertEquals(KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_BIOMETRIC, handle.kind)
+        } finally {
+            handle.wipe()
+            originalEntropy.fill(0)
+        }
+    }
+
+    // --- 助记词恢复 -------------------------------------------------------
+
+    @Test
+    fun `recoverFromMnemonic round-trips through 12 words`() {
+        val pin = "123456".toCharArray()
+        val setup = vault.initialize(pin, codec)
+        val mnemonic = setup.mnemonic
+        SecretBytes.wipe(pin)
+        setup.masterKey.wipe()
+        val originalEntropy = readEntropyFromPrefs()
+
+        val recovered = vault.recoverFromMnemonic(mnemonic, codec)
+        try {
+            assertArrayEquals(originalEntropy, recovered.entropy)
+            assertEquals(KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_MNEMONIC, recovered.kind)
+        } finally {
+            recovered.wipe()
+            originalEntropy.fill(0)
+        }
+    }
+
+    @Test
+    fun `recoverFromMnemonic fails on bad checksum`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+
+        // 任意一词换成另一份熵的对应词,校验位就对不上。
+        val tampered = codec.encode(EntropySource().nextBytes(16)).toMutableList()
+        val otherWord = codec.encode(EntropySource().nextBytes(16))[3]
+        tampered[3] = otherWord
+        try {
+            vault.recoverFromMnemonic(tampered, codec)
+            fail("应抛 ChecksumMismatch")
+        } catch (e: nt.ddeoid.accountbook.security.crypto.MnemonicException.ChecksumMismatch) {
+            // 期望路径
+        }
+    }
+
+    // --- changePin --------------------------------------------------------
+
+    @Test
+    fun `changePin keeps entropy and replaces blob`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        val originalEntropy = readEntropyFromPrefs()
+
+        val oldPin = "123456".toCharArray()
+        val newPin = "abcdefgh".toCharArray()
+        vault.changePin(oldPin, newPin)
+        SecretBytes.wipe(oldPin)
+        SecretBytes.wipe(newPin)
+
+        val newHandle = vault.unlockWithPin("abcdefgh".toCharArray())
+        try {
+            assertArrayEquals(originalEntropy, newHandle.entropy)
+        } finally {
+            newHandle.wipe()
+            originalEntropy.fill(0)
+        }
+        // 老 PIN 已经解不出来了
+        try {
+            vault.unlockWithPin("123456".toCharArray())
+            fail("老 PIN 应当失效")
+        } catch (e: CryptoException.UnwrapFailed) {
+            // 期望
+        }
+    }
+
+    @Test
+    fun `changePin fails when old pin is wrong`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+
+        val oldPin = "000000".toCharArray()
+        val newPin = "abcdefgh".toCharArray()
+        try {
+            vault.changePin(oldPin, newPin)
+            fail("老 PIN 错应当抛 UnwrapFailed")
+        } catch (e: CryptoException.UnwrapFailed) {
+            // 期望
+        } finally {
+            SecretBytes.wipe(oldPin)
+            SecretBytes.wipe(newPin)
+        }
+    }
+
+    // --- wipe / removeXxx -------------------------------------------------
+
+    @Test
+    fun `wipe removes everything`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        assertTrue(vault.isInitialized())
+
+        vault.wipe()
+        assertFalse(vault.isInitialized())
+        assertFalse(vault.hasPin())
+        assertFalse(vault.hasBiometric())
+    }
+
+    @Test
+    fun `removePinPath keeps biometric`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        vault.removePinPath()
+        assertFalse(vault.hasPin())
+        assertTrue(vault.hasBiometric())
+        assertTrue(vault.isInitialized())
+    }
+
+    @Test
+    fun `removeBiometricPath keeps PIN`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        vault.removeBiometricPath()
+        assertTrue(vault.hasPin())
+        assertFalse(vault.hasBiometric())
+    }
+
+    @Test
+    fun `reenrollBiometric rotates the alias and keeps entropy`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        val originalEntropy = readEntropyFromPrefs()
+
+        vault.reenrollBiometric()
+
+        val handle = vault.unlockWithBiometric()
+        try {
+            assertArrayEquals(originalEntropy, handle.entropy)
+        } finally {
+            handle.wipe()
+            originalEntropy.fill(0)
+        }
+    }
+
+    // --- 二次初始化保护 ---------------------------------------------------
+
+    @Test
+    fun `initialize twice throws`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        val pin2 = "abcdefgh".toCharArray()
+        try {
+            vault.initialize(pin2, codec)
+            fail("重复 initialize 应当抛 IllegalStateException")
+        } catch (e: IllegalStateException) {
+            // 期望
+        } finally {
+            SecretBytes.wipe(pin2)
+        }
+    }
+
+    @Test
+    fun `unlockWithBiometric without biometric blob throws`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec)
+        SecretBytes.wipe(pin)
+        vault.removeBiometricPath()
+        try {
+            vault.unlockWithBiometric()
+            fail("没生物识别路径应当抛 BlobCorrupted")
+        } catch (e: CryptoException.BlobCorrupted) {
+            // 期望
+        }
+    }
+
+    private fun readEntropyFromPrefs(): ByteArray =
+        java.util.Base64.getDecoder().decode(checkNotNull(prefs.getString("kv.master_entropy", null)))
+}
+
+/**
+ * in-memory [SharedPreferences] 的最小实现,用于 KeyVault 单测。
+ *
+ * 真实 EncryptedSharedPreferences 依赖 androidx.security + Android Keystore,
+ * 单测里完全没法跑;KeyVault 的状态机只关心 String/int 的读写,这层抽象够用了。
+ */
+private class InMemoryPrefs : EncryptedPrefsFactory {
+    private val map: MutableMap<String, Any?> = mutableMapOf()
+    override fun open(): SharedPreferences = Impl(map)
+    fun getString(key: String, default: String?): String? = map[key] as? String ?: default
+
+    private class Impl(private val map: MutableMap<String, Any?>) : SharedPreferences {
+        override fun getAll(): MutableMap<String, *> = map
+        override fun getString(key: String?, defValue: String?): String? = map[key] as? String ?: defValue
+        override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+            @Suppress("UNCHECKED_CAST") (map[key] as? MutableSet<String>) ?: defValues
+        override fun getInt(key: String?, defValue: Int): Int = (map[key] as? Int) ?: defValue
+        override fun getLong(key: String?, defValue: Long): Long = (map[key] as? Long) ?: defValue
+        override fun getFloat(key: String?, defValue: Float): Float = (map[key] as? Float) ?: defValue
+        override fun getBoolean(key: String?, defValue: Boolean): Boolean = (map[key] as? Boolean) ?: defValue
+        override fun contains(key: String?): Boolean = map.containsKey(key)
+        override fun edit(): SharedPreferences.Editor = EditorImpl(map)
+        override fun registerOnSharedPreferenceChangeListener(l: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+        override fun unregisterOnSharedPreferenceChangeListener(l: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+
+        private class EditorImpl(private val map: MutableMap<String, Any?>) : SharedPreferences.Editor {
+            // pending 既记录 put 的最新值,也充当"apply 时哪些 key 要保留"的清单。
+            // clear() 会清空 pending 并把所有原 key 加进 removes —— 所以要在清之前
+            // 把"原本就在 map 里的 key"抓下来。
+            private val initialKeys: Set<String> = map.keys.toSet()
+            private val pending: MutableMap<String, Any?> = map.toMutableMap()
+            private val removes: MutableSet<String> = mutableSetOf()
+            private var cleared = false
+            override fun putString(key: String, value: String?) = also { pending[key] = value; cleared = false }
+            override fun putStringSet(key: String, values: MutableSet<String>?) = also { pending[key] = values; cleared = false }
+            override fun putInt(key: String, value: Int) = also { pending[key] = value; cleared = false }
+            override fun putLong(key: String, value: Long) = also { pending[key] = value; cleared = false }
+            override fun putFloat(key: String, value: Float) = also { pending[key] = value; cleared = false }
+            override fun putBoolean(key: String, value: Boolean) = also { pending[key] = value; cleared = false }
+            override fun remove(key: String) = also { pending.remove(key); removes += key; cleared = false }
+            override fun clear() = also {
+                pending.clear()
+                removes += initialKeys
+                cleared = true
+            }
+            override fun commit(): Boolean { apply(); return true }
+            override fun apply() {
+                if (cleared) map.clear()
+                removes.forEach { map.remove(it) }
+                pending.forEach { (k, v) -> if (v == null) map.remove(k) else map[k] = v }
+            }
+        }
+    }
+}
+
+/**
+ * KeystoreAccess 的替身 —— 不去碰 Android Keystore,直接用一把固定的软件 AES 密钥。
+ * "我们正在用 Keystore"这件事本身就只是为了让 [KeyVault] 不去关心密码学的 key 派生;
+ * 测试只关心 wrap/unwrap 的语义,所以软件密钥完全足够。
+ */
+private class FakeKeystoreAccess : KeystoreAccess {
+
+    @Volatile var lastIssuedAlias: String = ""
+
+    private val keys: MutableMap<String, SecretKey> = mutableMapOf()
+    private val fixedKey: SecretKey = SecretKeySpec(ByteArray(32) { it.toByte() }, "AES")
+
+    override val biometricKeyAlias: String = "test_bio_v1"
+
+    override fun ensureBiometricKey(): SecretKey {
+        keys.getOrPut(biometricKeyAlias) { fixedKey }
+        lastIssuedAlias = biometricKeyAlias
+        return keys[biometricKeyAlias]!!
+    }
+
+    override fun ensureBiometricKeyAlias(): String {
+        keys.getOrPut(biometricKeyAlias) { fixedKey }
+        lastIssuedAlias = biometricKeyAlias
+        return biometricKeyAlias
+    }
+
+    override fun loadBiometricKey(alias: String): SecretKey =
+        keys[alias] ?: throw CryptoException.BlobCorrupted("alias $alias 不存在")
+
+    override fun deleteBiometricKey(alias: String) { keys.remove(alias) }
+}

@@ -7,10 +7,14 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
+import nt.ddeoid.accountbook.security.crypto.Bip39WordListProvider
+import nt.ddeoid.accountbook.security.crypto.MnemonicCodec
+import nt.ddeoid.accountbook.security.lock.EncryptedPrefsFactory
+import nt.ddeoid.accountbook.security.lock.KeystoreAccess
 import javax.inject.Singleton
 
 /**
- * 数据库相关的 Hilt 模块。
+ * 数据库 + 安全层相关的 Hilt 模块。
  *
  * Phase 4 之前这里提供 `AppDatabase` 和三个 DAO 的 `@Singleton` 绑定。**那些绑定已经
  * 全部删掉**,原因是 Q4=C:锁定必须真的关库,而直接注入的 DAO 生命周期比库长,一旦
@@ -21,6 +25,9 @@ import javax.inject.Singleton
  *   `@Singleton`,不需要在这里声明;它负责 open / close,并按需解析 DAO。
  * - 所有消费方注入 `DatabaseProvider`,调用 `provider.accountDao()` 之类,每次重新解析。
  * - [DatabasePassphraseProvider] 保留,是"未启用应用锁"时的口令来源(v0.3.0 行为)。
+ * - [MnemonicCodec] 由 [Bip39WordListProvider] 从 assets 加载、校验后提供。
+ * - [KeystoreAccess] / [EncryptedPrefsFactory] 都是抽象接口的 Default 实现 —— 测试可以
+ *   在 Hilt 里替换。
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -31,4 +38,18 @@ object DatabaseModule {
     fun providePassphraseProvider(
         @ApplicationContext context: Context,
     ): DatabasePassphraseProvider = DatabasePassphraseProvider(context)
+
+    @Provides
+    @Singleton
+    fun provideMnemonicCodec(provider: Bip39WordListProvider): MnemonicCodec = provider.codec()
+
+    @Provides
+    @Singleton
+    fun provideEncryptedPrefsFactory(
+        @ApplicationContext context: Context,
+    ): EncryptedPrefsFactory = EncryptedPrefsFactory.Default(context)
+
+    @Provides
+    @Singleton
+    fun provideKeystoreAccess(): KeystoreAccess = KeystoreAccess.Default()
 }

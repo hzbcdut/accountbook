@@ -42,6 +42,20 @@ class SecretBytes(val bytes: ByteArray) : AutoCloseable {
     /** 复制一份独立的副本,擦除副本是调用方的责任。 */
     fun copy(): SecretBytes = SecretBytes(bytes.copyOf())
 
+    /**
+     * 跑一段代码,无论成功失败都 [wipe]。
+     *
+     * 提供这个 inline 函数是为了让"用完即擦"在调用处看起来自然:`SecretBytes(x).use { ... }`,
+     * 而不是 try / finally 一坨。
+     */
+    inline fun <T> use(block: (SecretBytes) -> T): T {
+        try {
+            return block(this)
+        } finally {
+            wipe()
+        }
+    }
+
     override fun toString(): String =
         if (wiped) "SecretBytes(wiped)" else "SecretBytes(${bytes.size} bytes, hidden)"
 

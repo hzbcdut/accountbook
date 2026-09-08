@@ -62,18 +62,22 @@ object MasterKeyFactory {
         try {
             val masterKey = fromEntropy(entropy)
             val mnemonic = codec.encode(entropy)
-            return Generated(masterKey, mnemonic)
+            // 持久化路径要走熵(Q10=A:熵就是助记词背后的种子),所以把熵也一起带出去。
+            // 调用方负责擦;留到这里 wipe 会让 masterKey 派生完也跟着没,顺序错。
+            return Generated(masterKey = masterKey, mnemonic = mnemonic, entropy = entropy)
         } finally {
-            entropy.fill(0)
+            // 注意:不在这里擦 entropy。Generated 已经持有引用,调用方在用完时擦。
         }
     }
 
     /**
      * @param masterKey 调用方负责 [SecretBytes.wipe]
      * @param mnemonic 12 个词,仅用于展示;展示完应尽快从内存丢掉
+     * @param entropy 16 字节 BIP39 熵,持久化用;**调用方负责 [ByteArray.fill]** 清除
      */
     class Generated(
         val masterKey: SecretBytes,
         val mnemonic: List<String>,
+        val entropy: ByteArray,
     )
 }
