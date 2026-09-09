@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -128,10 +129,16 @@ fun SettingsScreen(
             is TransientMessage.ImportFailed -> context.getString(R.string.snackbar_import_failed, msg.error)
             TransientMessage.NoData -> context.getString(R.string.dialog_export_no_data)
             is TransientMessage.EncryptedExportDone -> context.getString(R.string.snackbar_encrypted_export_done, msg.megabytes)
+            is TransientMessage.EnablePinFailed -> context.getString(R.string.snackbar_enable_pin_failed, msg.error)
         }
         snackbarHostState.showSnackbar(text)
         viewModel.consumeTransientMessage()
     }
+
+    // Bug #39:Security 区块只在 Disabled 状态下显示 —— Unlocked 下"启用 PIN"已经完成,
+    // Locked 下根本进不来 Settings(MainNavHost 被外层拆掉),NeedsSetup/Migrating 同理。
+    val lockState by viewModel.lockState.collectAsState()
+    var showEnablePinDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -154,6 +161,9 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (lockState is nt.ddeoid.accountbook.security.lock.LockController.LockState.Disabled) {
+                SecuritySection(onEnablePinClick = { showEnablePinDialog = true })
+            }
             DataSection(
                 onExportJson = { viewModel.onRequestExport(ExportFormat.JSON) },
                 onExportCsv = { viewModel.onRequestExport(ExportFormat.CSV) },
@@ -177,6 +187,27 @@ fun SettingsScreen(
             AppearanceSection()
             AboutSection()
         }
+    }
+
+    // Bug #39:启用 PIN 确认弹窗 —— 提示用户会重加密 + 需要抄写新助记词,确认后
+    // 状态推到 NeedsSetup,RootNavHost 自动跳到 SetupWizard。
+    if (showEnablePinDialog) {
+        AlertDialog(
+            onDismissRequest = { showEnablePinDialog = false },
+            title = { Text(stringResource(R.string.dialog_enable_pin_title)) },
+            text = { Text(stringResource(R.string.dialog_enable_pin_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showEnablePinDialog = false
+                    viewModel.onEnablePin()
+                }) { Text(stringResource(R.string.dialog_enable_pin_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEnablePinDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 
     // 导出确认 dialog
@@ -251,6 +282,17 @@ fun SettingsScreen(
                     Text(stringResource(R.string.action_cancel))
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun SecuritySection(onEnablePinClick: () -> Unit) {
+    SectionCard(title = stringResource(R.string.settings_section_security)) {
+        ActionRow(
+            icon = Icons.Default.Lock,
+            label = stringResource(R.string.settings_enable_pin),
+            onClick = onEnablePinClick,
         )
     }
 }

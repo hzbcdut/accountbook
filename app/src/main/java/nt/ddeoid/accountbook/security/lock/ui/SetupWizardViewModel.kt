@@ -62,6 +62,17 @@ class SetupWizardViewModel @Inject constructor(
     /** step 4/5 用的 master key;步骤结束后 wipe,DB 用派生出来的口令打开。 */
     private var masterKey: SecretBytes? = null
 
+    /**
+     * 16 字节 BIP39 熵 —— 给 [KeyVault.MasterKeyHandle] 用的。
+     *
+     * 之前 wizard 直接把 [masterKey] 的 32 字节塞进 `handle.entropy` 字段,导致
+     * LockController 再做一次 HKDF 时拿到一个**不同的** 32 字节 key,DB 用错 key
+     * 加密 → 重启后 PIN 解锁报 "file is not a database"。
+     *
+     * 修复后:wizard 拿 [KeyVault.SetupResult.entropy](真熵,16 字节) 构造 handle。
+     */
+    private var entropy: ByteArray? = null
+
     /** 临时 PIN。提交 setup 后立刻 wipe。 */
     private var pin: CharArray? = null
 
@@ -128,9 +139,12 @@ class SetupWizardViewModel @Inject constructor(
         wipeMnemonicAndMasterKey()
         viewModelScope.launch {
             val currentPin = pin ?: return@launch
-            val setupResult = keyVault.initialize(currentPin, mnemonicCodec)
+            // TODO(Bug #39):如果生物识别 setup 静默失败(无 secure lock screen),
+            // UI 应当提示用户。v0.4.2 仅修复崩溃,UX 留作 #39。
+            val setupResult = keyVault.initialize(currentPin, mnemonicCodec, biometricEnabled)
             mnemonic = setupResult.mnemonic
             masterKey = setupResult.masterKey
+            entropy = setupResult.entropy
             _state.update {
                 it.copy(
                     mnemonicWords = setupResult.mnemonic,
@@ -162,16 +176,20 @@ class SetupWizardViewModel @Inject constructor(
     fun onFinishSetup() {
         val currentPin = pin ?: return
         val mk = masterKey ?: return
-        // 之后这两块都不再需要(masterKey 转给 controller,pinned 仅在 setup 流程内部用)
+        val realEntropy = entropy ?: return
+        // 之后这三块都不再需要(entropy 转给 controller 做 handle,
+        // masterKey 提前 wipe,pinned 仅在 setup 流程内部用)
         pin = null
         masterKey = null
+        entropy = null
         viewModelScope.launch {
             val handle = KeyVault.MasterKeyHandle(
-                entropy = mk.bytes.copyOf(),
+                entropy = realEntropy.copyOf(),
                 kind = KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_PIN,
             )
             try {
                 mk.wipe()
+                realEntropy.fill(0)
                 lockController.finishSetup(
                     handle = handle,
                     lockEnabled = true,
@@ -197,6 +215,8 @@ class SetupWizardViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         wipeMnemonicAndMasterKey()
+        entropy?.fill(0)
+        entropy = null
         pin?.let { SecretBytes.wipe(it) }
         pin = null
     }

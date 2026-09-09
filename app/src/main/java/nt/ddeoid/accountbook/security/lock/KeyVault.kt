@@ -76,13 +76,26 @@ class KeyVault @Inject constructor(
      * 首启初始化:生成熵 → 派生 master key → 用 PIN 派生密钥和 Keystore 密钥各裹一次。
      *
      * @param pin 用户选择的 PIN/passphrase。**调用方在调用前需要持有它,调用后立即擦掉**。
+     * @param biometricEnabled 用户在 wizard 步骤 3 是否勾选「启用生物识别」。**true 也只
+     *   是 best-effort** —— 设备没有 secure lock screen 时 Keystore 会拒绝创建
+     *   `setUserAuthenticationRequired` 的密钥,这种情况下 [initializeWithExistingEntropy]
+     *   会捕获异常、跳过生物识别 blob 的写入,setup 仍正常完成;`hasBiometric()` 返回 false,
+     *   后续可在 Settings 里通过 [enableBiometric] 重试。
      * @return [SetupResult] 包含 master key handle + 12 词,**调用方必须在抄写完
      *   助记词并展示结束后擦除 handle**。
      * @throws IllegalStateException 已经初始化过
      */
-    fun initialize(pin: CharArray, mnemonicCodec: MnemonicCodec): SetupResult {
+    fun initialize(
+        pin: CharArray,
+        mnemonicCodec: MnemonicCodec,
+        biometricEnabled: Boolean,
+    ): SetupResult {
         val generated = MasterKeyFactory.generate(mnemonicCodec, entropySource)
         try {
+            // ⚠️ 必须在调底层方法**之前**就把 entropy 复制一份出来:
+            // initializeWithExistingEntropy 在 finally 里会 wipe 它自己收到的入参,
+            // 但 generated.entropy 是同一个 ByteArray 引用,wipe 完我们手里那份也变 0。
+            val entropyForResult = generated.entropy.copyOf()
             // 走迁移路径共用的 wrap/persist 代码 —— 两条路径写出的字段必须完全一致,
             // 否则"升级用户的 KeyVault 和 fresh install 的 KeyVault 长得不一样"这种
             // 静默 bug 早晚会冒头。
@@ -90,6 +103,7 @@ class KeyVault @Inject constructor(
                 entropy = generated.entropy,
                 pin = pin,
                 mnemonicCodec = mnemonicCodec,
+                biometricEnabled = biometricEnabled,
             )
             // setupResult.masterKey 是底层方法为了兼容调用方生成的临时副本;外部拿到的是
             // generated.masterKey(由 generate 派生 + 由 generated.mnemonic 配套)。两者字节
@@ -98,6 +112,7 @@ class KeyVault @Inject constructor(
             return SetupResult(
                 masterKey = generated.masterKey,
                 mnemonic = generated.mnemonic,
+                entropy = entropyForResult,
             )
         } catch (t: Throwable) {
             generated.masterKey.wipe()
@@ -116,6 +131,9 @@ class KeyVault @Inject constructor(
      *
      * @param entropy 16 字节 BIP39 熵。本方法在返回前会清零它。
      * @param pin 用户选择的 PIN/passphrase,本方法用完会 wipe 派生的密钥。
+     * @param biometricEnabled 是否尝试启用生物识别路径。**best-effort**:设备没有 secure
+     *   lock screen / Keystore 不可用时会被 [CryptoException.BlobCorrupted] 拦截,只
+     *   跳过生物识别 blob 的写入,PIN 路径不受影响。
      * @return [SetupResult],其中 [SetupResult.masterKey] 是一次性副本(底层方法生成,
      *   [initialize] 不会暴露给调用方)。`[SetupResult.mnemonic]` 在迁移路径下为空,
      *   因为旧库用户从来没见过 12 词。
@@ -125,6 +143,7 @@ class KeyVault @Inject constructor(
         entropy: ByteArray,
         pin: CharArray,
         @Suppress("UNUSED_PARAMETER") mnemonicCodec: MnemonicCodec,
+        biometricEnabled: Boolean,
     ): SetupResult {
         check(!isInitialized()) { "KeyVault 已经初始化,不要重复调用 initializeWithExistingEntropy" }
         require(entropy.size == 16) {
@@ -132,32 +151,57 @@ class KeyVault @Inject constructor(
         }
         val salt = entropySource.nextSalt()
         val pinKey = PinKdf.derive(pin, salt, pinKdfIterations)
-        val bioKey = keystoreAccess.ensureBiometricKey()
+        // 生物识别路径是可选的。设备没有 secure lock screen 时 Keystore 会拒绝创建
+        // setUserAuthenticationRequired 的密钥;只 catch BlobCorrupted,不 catch 父类
+        // CryptoException —— 其他错误(如 unwrap 失败)继续响亮失败,免得吞掉真 bug。
+        val bioKey: javax.crypto.SecretKey? = if (biometricEnabled) {
+            try {
+                keystoreAccess.ensureBiometricKey()
+            } catch (e: CryptoException.BlobCorrupted) {
+                android.util.Log.w(
+                    "KeyVault",
+                    "生物识别密钥创建失败,跳过生物识别路径;setup 仍正常完成," +
+                        "后续可在 Settings → enableBiometric 重试",
+                    e,
+                )
+                null
+            }
+        } else null
         try {
             // 熵是持久化层的"主语":wrap 它、存它(Q10=A)。masterKey 不在 blob 里出现。
             val pinBlob = SecretBytes(entropy.copyOf()).use { copyForPin ->
                 wrapper.wrap(pinKey.bytes, copyForPin, KeyWrapper.WrapContext.PIN)
             }
-            val bioBlob = SecretBytes(entropy.copyOf()).use { copyForBio ->
-                wrapper.wrap(bioKey, copyForBio, KeyWrapper.WrapContext.BIOMETRIC)
-            }
-            withPrefs { prefs ->
+            val editor = withPrefs { prefs ->
                 prefs.edit()
                     .putString(KEY_MASTER_ENTROPY, base64(entropy))
                     .putString(KEY_PIN_SALT, base64(salt))
                     .putInt(KEY_KDF_ITERATIONS, pinKdfIterations)
                     .putString(KEY_PIN_BLOB, pinBlob)
+            }
+            if (bioKey != null) {
+                val bioBlob = SecretBytes(entropy.copyOf()).use { copyForBio ->
+                    wrapper.wrap(bioKey, copyForBio, KeyWrapper.WrapContext.BIOMETRIC)
+                }
+                editor
                     .putString(KEY_BIO_BLOB, bioBlob)
                     .putString(KEY_BIO_KEY_ALIAS, keystoreAccess.biometricKeyAlias)
                     .apply()
+            } else {
+                editor.apply()
             }
-            entropy.fill(0)
+            // ⚠️ entropy.fill(0) 必须在 masterKey 已经从 copyOf 拿到手之后,否则
+            // fromEntropy(zero) 会派生出一个固定的全零 master key,DB 用它加密,
+            // 但 unlock 时从 PIN blob 取回的是真熵,派生出另一个 key → "file is not a database"。
+            val realEntropyCopy = entropy.copyOf()
             return SetupResult(
                 masterKey = MasterKeyFactory.fromEntropy(entropy.copyOf()),
                 mnemonic = emptyList(),
+                entropy = realEntropyCopy,
             )
         } finally {
             pinKey.wipe()
+            entropy.fill(0)
         }
     }
 
@@ -269,6 +313,49 @@ class KeyVault @Inject constructor(
         }
     }
 
+    /**
+     * Settings 驱动的一次性生物识别 enroll。前提:KeyVault 已经初始化过(熵在 prefs 里),
+     * 但当前**没有**生物识别路径(`hasBiometric() == false`)。
+     *
+     * 与 [reenrollBiometric] 的区别:这是"首次启用",不需要删除旧 Keystore 密钥;
+     * [reenrollBiometric] 是"重新 enroll 后旋转别名" —— 两条路径语义不同,合并会
+     * 让 [reenrollBiometric] 的别名轮换副作用漏到首次启用上。
+     *
+     * @return Result.success 表示生物识别路径已写入 prefs;Result.failure 包装
+     *   [CryptoException.BlobCorrupted] 或 [IllegalStateException]。**不抛出**。
+     *   调用方(未来的 Settings UI)应当捕获并在 UI 上提示(例如"设备未设置锁屏,
+     *   无法启用生物识别")。
+     */
+    fun enableBiometric(): Result<Unit> {
+        // check(...) 抛 IllegalStateException 是契约性的 —— 调用方(未初始化的 KeyVault
+        // / 已经启用过生物识别的状态)写错了,所以必须**作为异常抛出**,不要包进
+        // Result.failure(否则未来 Settings UI 还要再区分 failure 到底是"写错了"
+        // 还是"环境不支持",多一层)。
+        check(isInitialized()) { "KeyVault 尚未初始化" }
+        check(!hasBiometric()) {
+            "生物识别路径已存在 —— 如需重置请先调 removeBiometricPath() 或 reenrollBiometric()"
+        }
+        return runCatching {
+            val bioKey = keystoreAccess.ensureBiometricKey()
+            val entropyB64 = withPrefs { it.getString(KEY_MASTER_ENTROPY, null) }
+                ?: throw CryptoException.BlobCorrupted("熵缺失,无法启用生物识别")
+            val entropy = base64Decode(entropyB64)
+            try {
+                val bioBlob = SecretBytes(entropy).use {
+                    wrapper.wrap(bioKey, it, KeyWrapper.WrapContext.BIOMETRIC)
+                }
+                withPrefs { prefs ->
+                    prefs.edit()
+                        .putString(KEY_BIO_BLOB, bioBlob)
+                        .putString(KEY_BIO_KEY_ALIAS, keystoreAccess.biometricKeyAlias)
+                        .apply()
+                }
+            } finally {
+                entropy.fill(0)
+            }
+        }
+    }
+
     /** 完全清空 —— 这是"禁用应用锁"的写操作。 */
     fun wipe() {
         val alias = withPrefs { it.getString(KEY_BIO_KEY_ALIAS, null) }
@@ -318,6 +405,12 @@ class KeyVault @Inject constructor(
     class SetupResult(
         val masterKey: SecretBytes,
         val mnemonic: List<String>,
+        /**
+           * 16 字节 BIP39 熵的副本,用于在 wizard 结束后构造 [MasterKeyHandle]。
+           * 调用方持有后必须 [ByteArray.fill](0) 擦除 —— [initialize] 已经把自己的
+           * [MasterKeyFactory.Generated.entropy] 副本擦了,这份是独立副本。
+           */
+        val entropy: ByteArray,
     )
 
     /**

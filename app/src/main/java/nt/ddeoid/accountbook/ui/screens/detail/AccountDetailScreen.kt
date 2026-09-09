@@ -66,15 +66,17 @@ import nt.ddeoid.accountbook.util.formatTimestamp
  *
  * - TopAppBar:返回 + 标题。
  * - 主区:平台 / 账号 / 类型 / 注册时间 / 备注 / 标签 / 创建 / 更新 / 状态。
- * - FAB:编辑(Phase 2 简化:点了直接回到主页把 BottomSheet 打开在编辑模式;Phase 3+ 可单独再开编辑页)。
+ * - FAB:编辑。Phase 2 实现方式:点 FAB 把 accountId 传给 NavHost,NavHost 回 Home
+ *   并把 AccountEditBottomSheet 以编辑模式打开。Phase 3+ 可单独开编辑页路由。
  *
- * 注意:Phase 2 没单独做编辑页;FAB 只是 placeholder。实际编辑入口仍然走 HomeScreen 的长按菜单 / BottomSheet,
+ * 注意:Phase 2 没单独做编辑页;实际编辑入口仍然走 HomeScreen 的 BottomSheet,
  * 详情页先给一个 Read-only 视图 + 复制账号按钮。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountDetailScreen(
     onBack: () -> Unit,
+    onEditRequested: (String) -> Unit = {},
     viewModel: AccountDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -94,7 +96,7 @@ fun AccountDetailScreen(
         },
         floatingActionButton = {
             if (state is AccountDetailUiState.Loaded) {
-                FloatingActionButton(onClick = { /* Phase 2: 编辑回主界面走 BottomSheet */ }) {
+                FloatingActionButton(onClick = { onEditRequested(viewModel.accountId) }) {
                     Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.action_edit))
                 }
             }

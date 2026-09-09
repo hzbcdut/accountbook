@@ -12,6 +12,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
 import nt.ddeoid.accountbook.data.local.DatabaseProvider
+import nt.ddeoid.accountbook.data.local.DatabaseRekeyer
 import nt.ddeoid.accountbook.data.local.MigrationMarker
 import nt.ddeoid.accountbook.data.seed.SeedDataInitializer
 import nt.ddeoid.accountbook.security.crypto.MasterKeyFactory
@@ -43,14 +44,17 @@ import javax.inject.Singleton
  *                    skipSetup()
  * NeedsSetup ──────────────────────────► Disabled (vault NOT initialized)
  *                                                │
- *                                                │ (用户在 Settings 启用锁 → NeedsSetup)
+ *                                                │ prepareLockFromDisabled()
+ *                                                ▼
+ *                                            NeedsSetup
  * ```
  *
  * - `NeedsSetup`:第一次启动,什么都没初始化。SetupWizard 走完后跳到 `Unlocked`。
  * - `Locked`:KeyVault 初始化过但 master key 不在内存里,DB 关着。需要解锁才能跳走。
  * - `Unlocked`:master key 在内存里(只在本对象持有,作为 [activeHandle]),DB 开着。
- * - `Disabled`:用户在 SetupWizard 里选了 Skip。**KeyVault 不存在,DB 不开**,直接进主 app。
- *   Settings 里能重新启用(走 NeedsSetup → Unlocked 这条线)。
+ * - `Disabled`:用户在 SetupWizard 里选了 Skip。**KeyVault 不存在,DB 用随机生成的
+ *   legacy passphrase 打开**(在 EncryptedSharedPrefs 里),直接进主 app。Settings 里能
+ *   重新启用(走 `prepareLockFromDisabled` → NeedsSetup → Unlocked 这条线)。
  *
  * ## 锁定时谁负责抹键
  *
@@ -71,6 +75,7 @@ class LockController @Inject constructor(
     private val lockPrefs: LockPrefs,
     private val mnemonicCodec: MnemonicCodec,
     private val passphraseProvider: DatabasePassphraseProvider,
+    private val databaseRekeyer: DatabaseRekeyer,
     private val migrationMarker: MigrationMarker,
     private val seedDataInitializer: SeedDataInitializer,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
@@ -136,7 +141,10 @@ class LockController @Inject constructor(
     ) = withContext(Dispatchers.IO) {
         transition.withLock {
             check(_state.value == LockState.NeedsSetup) { "不能在 NeedsSetup 之外调 finishSetup: state=${_state.value}" }
-            openDatabaseWith(handle)
+            // 如果 DB 还在用 legacy passphrase(用户在 SetupWizard 选了 Skip 后从 Settings
+            // 又启用锁),先 rekey 再 open。fresh install 路径上 hasLegacy=false → 走
+            // openDatabaseWith 直接开新库。
+            rekeyOrOpenDatabaseWith(handle)
             activeHandle = handle
             lockPrefs.setLockEnabled(lockEnabled)
             lockPrefs.setWizardCompleted(true)
@@ -320,6 +328,41 @@ class LockController @Inject constructor(
         }
     }
 
+    /**
+     * Bug #39 入口:finishSetup 在打开 DB 前判断当前 DB 是否还在用 legacy passphrase,
+     * 是的话先 rekey 到从 handle.entropy 派生的新 master key,再走 openDatabaseWith。
+     *
+     * 检测靠 `passphraseProvider.hasLegacy()` —— 这是 Skip 路径**唯一**的副作用,
+     * `LegacyKeyMigrator.migrate()` 成功后会主动擦除,普通 fresh install 也不会产生。
+     * 因此这条分支只在"用户曾经选过 Skip、又从 Settings 启用 PIN"的场景触发,不会误伤。
+     *
+     * rekey 是 SQLCipher 事务级操作:失败时文件**仍**用旧口令加密,调用方可以重试。
+     * 这里不单独处理 rekey 异常 —— 直接让异常冒泡,finishSetup 的 transition.withLock
+     * 保证状态不变,KeyVault 仍然初始化(wizard step 4 写过的熵还在),wizard 可以让用户
+     * 重新尝试。
+     */
+    private fun rekeyOrOpenDatabaseWith(handle: KeyVault.MasterKeyHandle) {
+        if (!passphraseProvider.hasLegacy() || !databaseProvider.isOpen) {
+            // fresh install / 库没开 → 直接走普通 open。
+            openDatabaseWith(handle)
+            return
+        }
+        databaseProvider.close()
+        val oldPass = SecretBytes(passphraseProvider.getOrCreate())
+        try {
+            SecretBytes(MasterKeyFactory.fromEntropy(handle.entropy).bytes).use { newMaster ->
+                databaseRekeyer.rekey(oldPass, newMaster)
+            }
+            // rekey 成功 → 旧口令已经打不开文件了,best-effort 擦掉。
+            // 失败也无所谓(只是 prefs 里残留一段不再能开库的密文),不让它阻塞用户。
+            runCatching { passphraseProvider.wipe() }
+                .onFailure { android.util.Log.w(TAG, "wipe legacy 失败(非致命)", it) }
+        } finally {
+            oldPass.wipe()
+        }
+        openDatabaseWith(handle)
+    }
+
     private fun wipeActiveHandle() {
         activeHandle?.wipe()
         activeHandle = null
@@ -500,5 +543,74 @@ class LockController @Inject constructor(
     /** 把 wizard 完成标记写回 prefs。 */
     suspend fun markWizardCompleted() = withContext(Dispatchers.IO) {
         lockPrefs.setWizardCompleted(true)
+    }
+
+    /**
+     * Bug #39 入口:从 Settings 里启用 PIN —— 把状态从 [LockState.Disabled] 推到
+     * [LockState.NeedsSetup],让 RootNavHost 自动把用户带回 SetupWizard。
+     *
+     * 是 [skipSetup] 的对偶:那一头 Skip→Disabled,这一头 Disabled→NeedsSetup。
+     *
+     * ## 为什么不在这里 rekey
+     *
+     * DB 现在用 legacy passphrase 加密,要换成新 master key 必须 rekey。但**不在**这里
+     * 做 —— 推迟到用户走完 wizard、在 [finishSetup] 里做。理由:如果用户在 wizard 中途
+     * 取消或被进程杀掉,wizard 已经写过 KeyVault 但 DB 还没 rekey → DB 仍然用 legacy
+     * 口令 → 下次启动 [bootstrap] 看到 `hasLegacy=true && wizardCompleted=true` → 走
+     * Disabled 状态(Phase 4 #37 的修复)→ 用户可以再点一次 Enable PIN 重来。状态机
+     * 自洽,数据不丢。
+     *
+     * ## 自愈:孤儿 KeyVault
+     *
+     * 有两种路径会让 [keyVault] 已经初始化但 [LockState] 仍是 Disabled:
+     *
+     * 1. 用户曾点 Enable PIN → wizard step 4 写了 KeyVault → 进程被杀。
+     *    下次启动 `bootstrap` 走 `!initialized && !wizardCompleted` 分支不命中、
+     *    走 `!initialized` 也不命中(`initialized=true`),最后 `!prefs.lockEnabled` 命中
+     *    → Disabled。
+     * 2. 用户从 Settings 启用 PIN → wizard step 4 写了 KeyVault → 又在新 wizard 里选了
+     *    Skip。[skipSetup] 把 state 推到 Disabled,但 KeyVault 没擦。
+     *
+     * 这两种情况下 PIN 已经在 wizard ViewModel scope 里被 wipe 了,但熵留在了
+     * EncryptedSharedPrefs 里 —— 用户没法再 unlock。**这里自动 wipe**,让 wizard 从
+     * step 1 重新跑出新的熵。
+     *
+     * ## 自愈:DB 没开
+     *
+     * 激进 process death 有可能让 `DatabaseBootstrap.openWithLegacyKey` 提前 return(它
+     * 看到 `keyVault.isInitialized()=true` 就跳过),DB 没开。这种情况下 `prepareLockFromDisabled`
+     * 自己用 legacy passphrase 开回去,不依赖外层补环境。
+     */
+    suspend fun prepareLockFromDisabled() = withContext(Dispatchers.IO) {
+        transition.withLock {
+            check(_state.value == LockState.Disabled) {
+                "只能在 Disabled 状态启用 PIN: state=${_state.value}"
+            }
+            // 自愈:DB 没开 → 用 legacy 口令开回去。
+            if (!databaseProvider.isOpen) {
+                check(passphraseProvider.hasLegacy()) {
+                    "DB 未开且没有 legacy 口令,无法启用 PIN"
+                }
+                val passphrase = SecretBytes(passphraseProvider.getOrCreate())
+                try {
+                    databaseProvider.open(passphrase)
+                } finally {
+                    passphrase.wipe()
+                }
+            }
+            // 自愈:KeyVault 残留 → 擦掉,让 wizard 重新生成熵。
+            if (keyVault.isInitialized()) {
+                android.util.Log.w(
+                    TAG,
+                    "发现孤儿 KeyVault(已初始化但 state=Disabled),自动 wipe",
+                )
+                keyVault.wipe()
+            }
+            _state.value = LockState.NeedsSetup
+        }
+    }
+
+    private companion object {
+        const val TAG = "LockController"
     }
 }

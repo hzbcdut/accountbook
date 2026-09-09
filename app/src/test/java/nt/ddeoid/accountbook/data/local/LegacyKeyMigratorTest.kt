@@ -101,7 +101,7 @@ class LegacyKeyMigratorTest {
         every { keyVault.isInitialized() } returns false
         every { marker.inProgress } returns false andThen true
         every { passphraseProvider.getOrCreate() } returns ByteArray(32).also { SecureRandom().nextBytes(it) }
-        every { keyVault.initializeWithExistingEntropy(any(), any(), any()) } returns mockk(relaxed = true)
+        every { keyVault.initializeWithExistingEntropy(any(), any(), any(), any()) } returns mockk(relaxed = true)
         every { passphraseProvider.wipe() } just Runs
         every { marker.inProgress = false } returns Unit
 
@@ -110,7 +110,9 @@ class LegacyKeyMigratorTest {
         // 步骤顺序:marker.on → rekey → vault.init → legacy.wipe
         coVerifyOrder {
             rekeyer.rekey(any(), any())
-            keyVault.initializeWithExistingEntropy(any(), any(), codec)
+            // 迁移路径**不**启用生物识别(Bug #38 修复回归):用户必须先在系统里确认
+            // 新设备有 secure lock screen。false 显式锁住这个契约。
+            keyVault.initializeWithExistingEntropy(any(), any(), codec, false)
             passphraseProvider.wipe()
         }
         // marker:on → off 都要被调到
@@ -147,7 +149,7 @@ class LegacyKeyMigratorTest {
         every { keyVault.isInitialized() } returns false
         every { marker.inProgress } returns false andThen true
         every { passphraseProvider.getOrCreate() } returns ByteArray(32).also { SecureRandom().nextBytes(it) }
-        every { keyVault.initializeWithExistingEntropy(any(), any(), any()) } throws RuntimeException("vault 炸了")
+        every { keyVault.initializeWithExistingEntropy(any(), any(), any(), any()) } throws RuntimeException("vault 炸了")
 
         try {
             migrator.migrate("123456".toCharArray(), codec)

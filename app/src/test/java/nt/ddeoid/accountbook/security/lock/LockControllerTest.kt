@@ -8,6 +8,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import nt.ddeoid.accountbook.data.local.DatabasePassphraseProvider
 import nt.ddeoid.accountbook.data.local.DatabaseProvider
+import nt.ddeoid.accountbook.data.local.DatabaseRekeyer
 import nt.ddeoid.accountbook.data.local.MigrationMarker
 import nt.ddeoid.accountbook.data.seed.SeedDataInitializer
 import nt.ddeoid.accountbook.security.crypto.MnemonicException
@@ -37,6 +38,7 @@ class LockControllerTest {
     private lateinit var lockPrefs: LockPrefs
     private lateinit var mnemonicCodec: MnemonicCodec
     private lateinit var passphraseProvider: DatabasePassphraseProvider
+    private lateinit var databaseRekeyer: DatabaseRekeyer
     private lateinit var migrationMarker: MigrationMarker
     private lateinit var seedDataInitializer: SeedDataInitializer
     private lateinit var controller: LockController
@@ -48,6 +50,7 @@ class LockControllerTest {
         lockPrefs = mockk(relaxed = true)
         mnemonicCodec = mockk(relaxed = true)
         passphraseProvider = mockk(relaxed = true)
+        databaseRekeyer = mockk(relaxed = true)
         migrationMarker = mockk(relaxed = true)
         seedDataInitializer = mockk(relaxed = true)
         // 默认 snapshot = DEFAULT,方便大部分测试直接走"全新设备"路径
@@ -62,6 +65,7 @@ class LockControllerTest {
             lockPrefs = lockPrefs,
             mnemonicCodec = mnemonicCodec,
             passphraseProvider = passphraseProvider,
+            databaseRekeyer = databaseRekeyer,
             migrationMarker = migrationMarker,
             seedDataInitializer = seedDataInitializer,
         )
@@ -288,6 +292,138 @@ class LockControllerTest {
         assertTrue(r.isSuccess)
         assertEquals(0L, controller.cooldownUntilEpochMs)
         // 成功 → state=Unlocked
+        assertEquals(LockController.LockState.Unlocked, controller.state.value)
+    }
+
+    // --- prepareLockFromDisabled (Bug #39) -------------------------------
+
+    /**
+     * 把 LockController 推到"Skip 完后"的稳定状态:
+     * - state == Disabled
+     * - DB 已用 legacy passphrase 打开(模拟生产环境 skipSetup 后的真实副作用)
+     * - KeyVault 未初始化
+     */
+    private suspend fun bootstrapAsDisabledAfterSkip() {
+        controller.bootstrap()   // → NeedsSetup
+        // 模拟 skipSetup 的副作用:DB 开了 + legacy 口令在 prefs 里
+        every { databaseProvider.isOpen } returns true
+        every { passphraseProvider.hasLegacy() } returns true
+        every { passphraseProvider.getOrCreate() } returns ByteArray(32) { 0x42 }
+        controller.skipSetup()
+        assertEquals(LockController.LockState.Disabled, controller.state.value)
+    }
+
+    @Test
+    fun `prepareLockFromDisabled from Disabled pushes state to NeedsSetup`() = runTest {
+        bootstrapAsDisabledAfterSkip()
+
+        controller.prepareLockFromDisabled()
+
+        assertEquals(LockController.LockState.NeedsSetup, controller.state.value)
+    }
+
+    @Test
+    fun `prepareLockFromDisabled from NeedsSetup throws and state unchanged`() = runTest {
+        controller.bootstrap()
+        assertEquals(LockController.LockState.NeedsSetup, controller.state.value)
+
+        try {
+            controller.prepareLockFromDisabled()
+            fail("NeedsSetup 状态调 prepareLockFromDisabled 应抛 IllegalStateException")
+        } catch (e: IllegalStateException) {
+            // 期望
+        }
+        assertEquals(LockController.LockState.NeedsSetup, controller.state.value)
+    }
+
+    @Test
+    fun `prepareLockFromDisabled from Unlocked throws`() = runTest {
+        bootstrapAsLocked()
+        val realHandle = KeyVault.MasterKeyHandle(
+            ByteArray(16) { it.toByte() },
+            KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_PIN,
+        )
+        coEvery { keyVault.unlockWithPin(any()) } returns realHandle
+        every { databaseProvider.open(any()) } returns mockk(relaxed = true)
+        controller.attemptUnlockWithPin("1234".toCharArray())
+        assertEquals(LockController.LockState.Unlocked, controller.state.value)
+
+        try {
+            controller.prepareLockFromDisabled()
+            fail("Unlocked 状态调 prepareLockFromDisabled 应抛 IllegalStateException")
+        } catch (e: IllegalStateException) {
+            // 期望
+        }
+    }
+
+    @Test
+    fun `prepareLockFromDisabled wipes orphan KeyVault before transitioning`() = runTest {
+        bootstrapAsDisabledAfterSkip()
+        // 模拟"用户曾点 Enable PIN → wizard step 4 写了 KeyVault → 进程被杀"
+        every { keyVault.isInitialized() } returns true
+
+        controller.prepareLockFromDisabled()
+
+        coVerify { keyVault.wipe() }
+        assertEquals(LockController.LockState.NeedsSetup, controller.state.value)
+    }
+
+    @Test
+    fun `prepareLockFromDisabled reopens DB with legacy passphrase when closed`() = runTest {
+        bootstrapAsDisabledAfterSkip()
+        // 模拟"激进 process death 让 DatabaseBootstrap 跳过了 openWithLegacyKey":
+        // DB 关了,但 legacy 口令还在 prefs 里。
+        every { databaseProvider.isOpen } returns false
+
+        controller.prepareLockFromDisabled()
+
+        // DB 被重新打开了
+        coVerify { databaseProvider.open(any()) }
+        assertEquals(LockController.LockState.NeedsSetup, controller.state.value)
+    }
+
+    // --- finishSetup rekey (Bug #39) -------------------------------------
+
+    @Test
+    fun `finishSetup rekeys when DB is on legacy passphrase`() = runTest {
+        bootstrapAsDisabledAfterSkip()
+        // wizard step 4 写了 KeyVault
+        every { keyVault.isInitialized() } returns true
+        // 用户点 Enable PIN → state 推到 NeedsSetup
+        controller.prepareLockFromDisabled()
+        assertEquals(LockController.LockState.NeedsSetup, controller.state.value)
+
+        val handle = KeyVault.MasterKeyHandle(
+            ByteArray(16) { it.toByte() },
+            KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_PIN,
+        )
+        controller.finishSetup(handle, lockEnabled = true)
+
+        // rekey 被调
+        coVerify { databaseRekeyer.rekey(any(), any()) }
+        // legacy 口令被擦
+        coVerify { passphraseProvider.wipe() }
+        // DB 最终以新 master key 打开
+        coVerify { databaseProvider.open(any()) }
+        assertEquals(LockController.LockState.Unlocked, controller.state.value)
+    }
+
+    @Test
+    fun `finishSetup does not rekey on fresh install`() = runTest {
+        controller.bootstrap()
+        // 全新设备:DB 没开,没有 legacy 口令,wizard 走完之后进 finishSetup
+        assertEquals(LockController.LockState.NeedsSetup, controller.state.value)
+
+        val handle = KeyVault.MasterKeyHandle(
+            ByteArray(16) { it.toByte() },
+            KeyVault.MasterKeyHandle.Kind.DERIVED_FROM_PIN,
+        )
+        controller.finishSetup(handle, lockEnabled = true)
+
+        coVerify(exactly = 0) { databaseRekeyer.rekey(any(), any()) }
+        coVerify(exactly = 0) { passphraseProvider.wipe() }
+        // 普通 open 路径
+        coVerify { databaseProvider.open(any()) }
         assertEquals(LockController.LockState.Unlocked, controller.state.value)
     }
 

@@ -19,6 +19,7 @@ import nt.ddeoid.accountbook.data.export.codec.CsvBackupCodec
 import nt.ddeoid.accountbook.data.export.codec.JsonBackupCodec
 import nt.ddeoid.accountbook.data.export.model.AccountBookBackup
 import nt.ddeoid.accountbook.data.export.model.BackupSummary
+import nt.ddeoid.accountbook.security.lock.LockController
 import javax.inject.Inject
 
 /**
@@ -47,10 +48,18 @@ class SettingsViewModel @Inject constructor(
     private val backupExporter: BackupExporter,
     private val backupImporter: BackupImporter,
     private val encryptedDatabaseBackup: EncryptedDatabaseBackup,
+    private val lockController: LockController,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
+
+    /**
+     * 给 Settings UI 用的锁状态。Bug #39:Security 区块只在 [LockController.LockState.Disabled]
+     * 下显示 —— 这一层把 LockController.state 暴露成 read-only 的 StateFlow,Composable
+     * collectAsState 就能用。
+     */
+    val lockState: StateFlow<LockController.LockState> = lockController.state
 
     // --- 导出 ---------------------------------------------------------------
 
@@ -228,6 +237,34 @@ class SettingsViewModel @Inject constructor(
     fun dismissEncryptedDbExport() {
         _state.update { it.copy(pendingEncryptedExport = null) }
     }
+
+    // --- 启用 PIN (Bug #39) ---------------------------------------------
+
+    /**
+     * 用户点 Settings 里 "Enable PIN" 后调 —— 把状态从 Disabled 推到 NeedsSetup,
+     * RootNavHost.LaunchedEffect 看到状态变化自动跳到 SetupWizard。
+     *
+     * 注意:**这里不会**触发 rekey(那是 finishSetup 的事,见 LockController 注释)。
+     * 这一步只改状态 + 自愈孤儿 KeyVault / 关闭的 DB。
+     *
+     * 失败时不上抛 —— UI 侧通过 [TransientMessage.EnablePinFailed] 弹 snackbar,
+     * 不让 crash 把用户带回 Home。
+     */
+    fun onEnablePin() {
+        viewModelScope.launch {
+            try {
+                lockController.prepareLockFromDisabled()
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        transientMessage = TransientMessage.EnablePinFailed(
+                            t.message ?: t::class.simpleName.orEmpty(),
+                        ),
+                    )
+                }
+            }
+        }
+    }
 }
 
 // --- UI 状态 -------------------------------------------------------------
@@ -267,4 +304,6 @@ sealed interface TransientMessage {
     data object NoData : TransientMessage
     /** 加密 DB 备份成功,展示写入的 MB 数。 */
     data class EncryptedExportDone(val megabytes: Double) : TransientMessage
+    /** Bug #39:从 Settings 启用 PIN 失败(状态机拒绝、DB 损坏 等)。 */
+    data class EnablePinFailed(val error: String) : TransientMessage
 }

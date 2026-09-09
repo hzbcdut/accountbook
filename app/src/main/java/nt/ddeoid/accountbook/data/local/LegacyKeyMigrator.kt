@@ -96,11 +96,17 @@ class LegacyKeyMigrator @Inject constructor(
                 // LockController.finishMigration 可以接着开库。熵在用之前先 copyOf 出来
                 // 留给返回的 handle —— `initializeWithExistingEntropy` 会自己 wipe 自己的
                 // 入参副本,但 generated.entropy 还要在 finally 里被 wipe。
+                //
+                // 迁移路径**不**启用生物识别:用户必须先在系统设置里确认自己的新设备有
+                // secure lock screen(旧设备可能没有,且迁移是从 v0.3.0 升级过来的)。
+                // 后续如果想在迁移里也提供生物识别选项,需要改 wizard 的 step 2 让用户
+                // 勾选并把参数传进来。
                 val entropyForHandle = generated.entropy.copyOf()
                 keyVault.initializeWithExistingEntropy(
                     entropy = generated.entropy.copyOf(),
                     pin = newPin,
                     mnemonicCodec = mnemonicCodec,
+                    biometricEnabled = false,
                 )
 
                 // 步骤 5:清旧口令 —— best-effort。这步失败不影响安全(DB 已经重 key 了),

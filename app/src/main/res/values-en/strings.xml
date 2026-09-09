@@ -140,6 +140,8 @@
     <string name="settings_section_data">Data</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_about">About</string>
+    <string name="settings_section_security">Security</string>
+    <string name="settings_enable_pin">Enable PIN</string>
     <string name="settings_export_json">Export JSON backup</string>
     <string name="settings_export_csv">Export CSV (Excel-friendly)</string>
     <string name="settings_import_json">Import from JSON</string>
@@ -154,6 +156,11 @@
     <string name="dialog_export_message">Will export %1$d accounts to the file you pick.\n\n⚠️ The backup is plaintext and contains your account info. Keep it safe; do not upload it to cloud drives or chat apps.</string>
     <string name="dialog_export_confirm">I understand, export anyway</string>
     <string name="dialog_export_no_data">No accounts in the database yet, nothing to export</string>
+
+    <string name="dialog_enable_pin_title">Enable PIN?</string>
+    <string name="dialog_enable_pin_message">The database will be re-encrypted with a new key. Your accounts stay intact, but you\'ll need to set a PIN and write down a new 12-word recovery phrase.</string>
+    <string name="dialog_enable_pin_confirm">Continue</string>
+    <string name="snackbar_enable_pin_failed">Failed to enable PIN: %1$s</string>
 
     <string name="dialog_import_title">Import backup?</string>
     <string name="dialog_import_message_json">Will restore %1$d accounts, %2$d tags, %3$d platform catalog entries from the backup.\n\nRule: existing (platform, account) pairs are skipped and never overwrite your edits.</string>

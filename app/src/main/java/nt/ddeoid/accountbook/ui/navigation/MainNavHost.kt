@@ -1,6 +1,10 @@
 package nt.ddeoid.accountbook.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -32,6 +36,10 @@ import nt.ddeoid.accountbook.ui.screens.settings.SettingsScreen
 fun MainNavHost(
     navController: NavHostController = rememberNavController(),
 ) {
+    // Bug #40:详情页 FAB → 回主页打开编辑 BottomSheet 的桥。
+    // null → id → null 三态循环:Detail 写 id → Home effect 消费后写回 null。
+    var pendingEditId by remember { mutableStateOf<String?>(null) }
+
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
             HomeScreen(
@@ -41,6 +49,8 @@ fun MainNavHost(
                 onNavigateToSettings = {
                     navController.navigate(Routes.SETTINGS)
                 },
+                pendingEditId = pendingEditId,
+                onPendingEditConsumed = { pendingEditId = null },
             )
         }
         composable(
@@ -51,6 +61,12 @@ fun MainNavHost(
         ) {
             AccountDetailScreen(
                 onBack = { navController.popBackStack() },
+                onEditRequested = { accountId ->
+                    // ⚠️ 先写 state 再 pop:如果先 pop,下一帧 Home 重组时 effect
+                    // 可能看到过期的 null 而错过这次编辑意图。
+                    pendingEditId = accountId
+                    navController.popBackStack()
+                },
             )
         }
         composable(Routes.SETTINGS) {

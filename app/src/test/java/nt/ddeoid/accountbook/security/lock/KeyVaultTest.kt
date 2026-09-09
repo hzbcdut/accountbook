@@ -62,7 +62,7 @@ class KeyVaultTest {
     @Test
     fun `initialize writes entropy and both blobs`() {
         val pin = "123456".toCharArray()
-        val setup = vault.initialize(pin, codec)
+        val setup = vault.initialize(pin, codec, biometricEnabled = true)
         try {
             assertTrue(vault.isInitialized())
             assertTrue(vault.hasPin())
@@ -78,7 +78,7 @@ class KeyVaultTest {
     @Test
     fun `unlockWithPin recovers the original entropy bytes`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         val originalEntropy = readEntropyFromPrefs()
 
@@ -98,9 +98,26 @@ class KeyVaultTest {
     }
 
     @Test
+    fun `initialize returns masterKey derived from real entropy not zeros`() {
+        // 回归:Bug #38 端到端验证时发现的 entropy.fill(0) 提前擦除 bug。
+        // [initialize] 返回的 masterKey 必须能跟 [unlockWithPin] 之后再 derive
+        // 出来的 masterKey 对齐 —— 否则 setup 时打开的 DB 跟 unlock 时打开的 DB
+        // 用了不同的 key,SQLCipher 报 "file is not a database"。
+        val pin = "123456".toCharArray()
+        val setup = vault.initialize(pin, codec, biometricEnabled = true)
+        SecretBytes.wipe(pin)
+        try {
+            val expected = MasterKeyFactory.fromEntropy(readEntropyFromPrefs()).bytes
+            assertArrayEquals(expected, setup.masterKey.bytes)
+        } finally {
+            setup.masterKey.wipe()
+        }
+    }
+
+    @Test
     fun `unlockWithPin fails with wrong pin`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
 
         val wrong = "999999".toCharArray()
@@ -121,7 +138,7 @@ class KeyVaultTest {
         // 这条测试保住 [KeyWrapper.WrapContext] 的 AAD 真的起到了分桶作用。
         // 如果谁不小心把 WrapContext.PIN / BIOMETRIC 改成共享 AAD,这条会红。
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
 
         val bioBlob = prefs.getString("kv.bio_blob", null)
@@ -149,7 +166,7 @@ class KeyVaultTest {
     @Test
     fun `biometric unlock yields the same entropy`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         val originalEntropy = readEntropyFromPrefs()
 
@@ -168,7 +185,7 @@ class KeyVaultTest {
     @Test
     fun `recoverFromMnemonic round-trips through 12 words`() {
         val pin = "123456".toCharArray()
-        val setup = vault.initialize(pin, codec)
+        val setup = vault.initialize(pin, codec, biometricEnabled = true)
         val mnemonic = setup.mnemonic
         SecretBytes.wipe(pin)
         setup.masterKey.wipe()
@@ -187,7 +204,7 @@ class KeyVaultTest {
     @Test
     fun `recoverFromMnemonic fails on bad checksum`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
 
         // 构造一个有**故意错配校验位**的助记词。
@@ -234,7 +251,7 @@ class KeyVaultTest {
     @Test
     fun `changePin keeps entropy and replaces blob`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         val originalEntropy = readEntropyFromPrefs()
 
@@ -263,7 +280,7 @@ class KeyVaultTest {
     @Test
     fun `changePin fails when old pin is wrong`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
 
         val oldPin = "000000".toCharArray()
@@ -284,7 +301,7 @@ class KeyVaultTest {
     @Test
     fun `wipe removes everything`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         assertTrue(vault.isInitialized())
 
@@ -297,7 +314,7 @@ class KeyVaultTest {
     @Test
     fun `removePinPath keeps biometric`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         vault.removePinPath()
         assertFalse(vault.hasPin())
@@ -308,7 +325,7 @@ class KeyVaultTest {
     @Test
     fun `removeBiometricPath keeps PIN`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         vault.removeBiometricPath()
         assertTrue(vault.hasPin())
@@ -318,7 +335,7 @@ class KeyVaultTest {
     @Test
     fun `reenrollBiometric rotates the alias and keeps entropy`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         val originalEntropy = readEntropyFromPrefs()
 
@@ -338,11 +355,11 @@ class KeyVaultTest {
     @Test
     fun `initialize twice throws`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         val pin2 = "abcdefgh".toCharArray()
         try {
-            vault.initialize(pin2, codec)
+            vault.initialize(pin2, codec, biometricEnabled = true)
             fail("重复 initialize 应当抛 IllegalStateException")
         } catch (e: IllegalStateException) {
             // 期望
@@ -354,13 +371,139 @@ class KeyVaultTest {
     @Test
     fun `unlockWithBiometric without biometric blob throws`() {
         val pin = "123456".toCharArray()
-        vault.initialize(pin, codec)
+        vault.initialize(pin, codec, biometricEnabled = true)
         SecretBytes.wipe(pin)
         vault.removeBiometricPath()
         try {
             vault.unlockWithBiometric()
             fail("没生物识别路径应当抛 BlobCorrupted")
         } catch (e: CryptoException.BlobCorrupted) {
+            // 期望
+        }
+    }
+
+    // --- biometricEnabled 参数 (v0.4.2 Bug #38 修复回归) -------------
+
+    /**
+     * Bug #38 回归:wizard 步骤 4 上,如果用户**没勾**「启用生物识别」,setup 应当**不调用**
+     * Keystore 创建密钥 —— 既不写 bio blob 也不留 Keystore 密钥。
+     *
+     * 之前 `initialize` 无条件调 `ensureBiometricKey()`,在没 secure lock screen 的设备上
+     * 直接抛 `CryptoException.BlobCorrupted` → 整个 wizard 协程崩溃。
+     */
+    @Test
+    fun `initialize with biometricEnabled false skips biometric path entirely`() {
+        val pin = "123456".toCharArray()
+        val setup = vault.initialize(pin, codec, biometricEnabled = false)
+        try {
+            assertTrue(vault.isInitialized())
+            assertTrue(vault.hasPin())
+            assertFalse("biometricEnabled=false 时 hasBiometric() 应当为 false", vault.hasBiometric())
+            // 没有触发 Keystore 密钥创建(alias 应当是初始空值)
+            assertEquals("", keystore.lastIssuedAlias)
+        } finally {
+            SecretBytes.wipe(pin)
+            setup.masterKey.wipe()
+        }
+    }
+
+    /**
+     * Bug #38 核心回归:用户**勾了**生物识别,但设备没有 secure lock screen / Keystore
+     * 不可用 —— setup 必须**完成**(有熵 + 有 PIN blob),而不是把整个协程崩了。
+     * bio blob 不写,hasBiometric()==false,后续可在 Settings 通过 enableBiometric 重试。
+     */
+    @Test
+    fun `initialize with biometricEnabled true but Keystore failing skips bio blob and completes`() {
+        keystore.shouldThrowOnEnsureBiometricKey = true
+        val pin = "123456".toCharArray()
+        val setup = try {
+            vault.initialize(pin, codec, biometricEnabled = true)
+        } finally {
+            SecretBytes.wipe(pin)
+        }
+        try {
+            assertTrue("Keystore 失败时 setup 仍应完成", vault.isInitialized())
+            assertTrue(vault.hasPin())
+            assertFalse(
+                "Keystore 失败时 bio blob 不写,hasBiometric() 应当为 false",
+                vault.hasBiometric(),
+            )
+            assertEquals(12, setup.mnemonic.size)
+        } finally {
+            setup.masterKey.wipe()
+        }
+    }
+
+    @Test
+    fun `initializeWithExistingEntropy with biometricEnabled false skips bio blob`() {
+        // 迁移路径(LegacyKeyMigrator)走的就是这个分支。
+        val entropy = ByteArray(16) { (it + 7).toByte() }
+        val pin = "123456".toCharArray()
+        vault.initializeWithExistingEntropy(entropy, pin, codec, biometricEnabled = false)
+        try {
+            assertTrue(vault.isInitialized())
+            assertTrue(vault.hasPin())
+            assertFalse(vault.hasBiometric())
+        } finally {
+            SecretBytes.wipe(pin)
+            entropy.fill(0)
+        }
+    }
+
+    // --- enableBiometric (v0.4.2 新增,给未来 Settings UI 用) -------------
+
+    @Test
+    fun `enableBiometric writes bio blob when Keystore succeeds`() {
+        val pin = "123456".toCharArray()
+        val setup = vault.initialize(pin, codec, biometricEnabled = false)
+        SecretBytes.wipe(pin)
+        setup.masterKey.wipe()
+
+        assertFalse(vault.hasBiometric())
+        val r = vault.enableBiometric()
+        try {
+            assertTrue("enableBiometric 应当成功: $r", r.isSuccess)
+            assertTrue(vault.hasBiometric())
+            // 新写的 bio blob 能解
+            val handle = vault.unlockWithBiometric()
+            handle.wipe()
+        } catch (t: Throwable) {
+            throw t
+        }
+    }
+
+    @Test
+    fun `enableBiometric returns failure when Keystore unavailable`() {
+        val pin = "123456".toCharArray()
+        val setup = vault.initialize(pin, codec, biometricEnabled = false)
+        SecretBytes.wipe(pin)
+        setup.masterKey.wipe()
+
+        keystore.shouldThrowOnEnsureBiometricKey = true
+        val r = vault.enableBiometric()
+        assertTrue("Keystore 失败时 enableBiometric 应当返回 failure", r.isFailure)
+        assertFalse(vault.hasBiometric())
+    }
+
+    @Test
+    fun `enableBiometric throws IllegalStateException when already enabled`() {
+        val pin = "123456".toCharArray()
+        vault.initialize(pin, codec, biometricEnabled = true)
+        SecretBytes.wipe(pin)
+        try {
+            vault.enableBiometric()
+            fail("hasBiometric()==true 时 enableBiometric 应当抛 IllegalStateException")
+        } catch (e: IllegalStateException) {
+            // 期望
+        }
+    }
+
+    @Test
+    fun `enableBiometric throws when KeyVault not initialized`() {
+        try {
+            vault.enableBiometric()
+            fail("未初始化时 enableBiometric 应当抛 IllegalStateException")
+        } catch (e: IllegalStateException) {
             // 期望
         }
     }
@@ -380,7 +523,7 @@ class KeyVaultTest {
         val expectedEntropy = ByteArray(16) { (it + 7).toByte() }
         val entropy = expectedEntropy.copyOf()
         val pin = "123456".toCharArray()
-        vault.initializeWithExistingEntropy(entropy, pin, codec)
+        vault.initializeWithExistingEntropy(entropy, pin, codec, biometricEnabled = true)
 
         assertTrue(vault.isInitialized())
         assertTrue(vault.hasPin())
@@ -414,6 +557,7 @@ class KeyVaultTest {
                 ByteArray(15), // 短了一字节
                 "123456".toCharArray(),
                 codec,
+                biometricEnabled = true,
             )
             fail("熵不是 16 字节应当抛 IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
@@ -423,13 +567,14 @@ class KeyVaultTest {
 
     @Test
     fun `initializeWithExistingEntropy twice throws`() {
-        vault.initialize("123456".toCharArray(), codec)
+        vault.initialize("123456".toCharArray(), codec, biometricEnabled = true)
         SecretBytes.wipe("123456".toCharArray())
         try {
             vault.initializeWithExistingEntropy(
                 ByteArray(16) { 0x42 },
                 "abcdefgh".toCharArray(),
                 codec,
+                biometricEnabled = true,
             )
             fail("重复初始化应当抛 IllegalStateException")
         } catch (e: IllegalStateException) {
@@ -505,18 +650,35 @@ private class FakeKeystoreAccess : KeystoreAccess {
 
     @Volatile var lastIssuedAlias: String = ""
 
+    /**
+     * 测试 seam:模拟"设备没有 secure lock screen / Keystore 不可用"。
+     * 真实设备上 `AndroidKeystoreKeyFactory.create` 会抛 [CryptoException.BlobCorrupted]
+     * (包装自 `IllegalStateException: Secure lock screen must be enabled`)。
+     */
+    @Volatile var shouldThrowOnEnsureBiometricKey: Boolean = false
+
     private val keys: MutableMap<String, SecretKey> = mutableMapOf()
     private val fixedKey: SecretKey = SecretKeySpec(ByteArray(32) { it.toByte() }, "AES")
 
     override val biometricKeyAlias: String = "test_bio_v1"
 
     override fun ensureBiometricKey(): SecretKey {
+        if (shouldThrowOnEnsureBiometricKey) {
+            throw CryptoException.BlobCorrupted(
+                "FakeKeystoreAccess 模拟:Keystore 不可用 / 无 secure lock screen",
+            )
+        }
         keys.getOrPut(biometricKeyAlias) { fixedKey }
         lastIssuedAlias = biometricKeyAlias
         return keys[biometricKeyAlias]!!
     }
 
     override fun ensureBiometricKeyAlias(): String {
+        if (shouldThrowOnEnsureBiometricKey) {
+            throw CryptoException.BlobCorrupted(
+                "FakeKeystoreAccess 模拟:Keystore 不可用 / 无 secure lock screen",
+            )
+        }
         keys.getOrPut(biometricKeyAlias) { fixedKey }
         lastIssuedAlias = biometricKeyAlias
         return biometricKeyAlias

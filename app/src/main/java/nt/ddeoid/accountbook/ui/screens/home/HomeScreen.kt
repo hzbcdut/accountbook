@@ -27,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +72,8 @@ import nt.ddeoid.accountbook.ui.screens.home.components.HomeTopBar
 fun HomeScreen(
     onNavigateToDetail: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    pendingEditId: String? = null,
+    onPendingEditConsumed: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -80,6 +83,14 @@ fun HomeScreen(
     // 编辑态。null = 没在编辑;非 null = 加载这个 id 的现有记录做编辑。
     var sheetTarget by remember { mutableStateOf<SheetTarget?>(null) }
     var actionMenuTarget by remember { mutableStateOf<String?>(null) }
+
+    // Bug #40:详情页 FAB → 回主页打开编辑 BottomSheet 的桥。
+    // pendingEditId 从 null 变非 null 时,触发 sheetTarget;消费后写回 null 让下次再来也能触发。
+    LaunchedEffect(pendingEditId) {
+        val id = pendingEditId ?: return@LaunchedEffect
+        sheetTarget = SheetTarget.Edit(id)
+        onPendingEditConsumed()
+    }
 
     Scaffold(
         topBar = {

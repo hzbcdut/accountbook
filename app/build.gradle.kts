@@ -20,8 +20,8 @@ android {
         applicationId = "nt.ddeoid.accountbook"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.4.1"
+        versionCode = 5
+        versionName = "0.4.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -53,6 +53,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+    // Bug #38(v0.4.2):KeyVault.initializeWithExistingEntropy 在生物识别失败路径
+    // 会调 android.util.Log.w,默认 JVM 单测会抛 RuntimeException("not mocked")。
+    // 开 isReturnDefaultValues 让 Log.* 等返回默认值 0,免得给每个 log call 都包 mockk。
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+            isIncludeAndroidResources = false
         }
     }
     compileOptions {
