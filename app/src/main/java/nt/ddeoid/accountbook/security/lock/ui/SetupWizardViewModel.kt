@@ -248,6 +248,31 @@ class SetupWizardViewModel @Inject constructor(
      * RootNavHost 自动切到 main。
      *
      * 完成后 ViewModel 立刻 wipe 自己持有的所有密钥。
+     *
+     * ## timeout tier:v0.4.7 从 IMMEDIATE 改成 SHORT(15 秒)
+     *
+     * v0.4.6 用户报告"勾选生物识别后再次输入 PIN 一直循环",我在 emulator 上
+     * 复现不到 wizard 内部循环,但发现一个相关问题:**wizard 默认的 timeout =
+     * `IMMEDIATE(0L)` 太激进**。`LockController.onAppForegrounded` 的判定是
+     * `elapsed >= timeoutMs`,IMMEDIATE = 0 → 任何一次 `elapsed >= 0` 都成立
+     * → **每次 app 回前台都立刻 lock**。
+     *
+     * 用户的实际体验是:
+     * - 完成 wizard → Home(短暂停留)
+     * - 手机系统事件触发 ON_PAUSED(通知中心下拉、BiometricPrompt 弹窗、gesture nav
+     *   等)→ onAppBackgrounded 标记 T1 → onAppForegrounded 算 elapsed ≈ 几十 ms → lock
+     * - LockScreen 弹出 → 用户输入 PIN → unlock → Home
+     * - 几秒后又触发 ON_PAUSED → lock → 又要输入 PIN
+     * - 用户感知:"勾选生物识别之后又要一直输入 PIN"
+     *
+     * 为什么 user 提到"勾选生物识别":BiometricPrompt 本身是个 DialogFragment,
+     * 显示时 host activity 进 paused,用户过完 biometric 后 activity 回前台 → 又触发
+     * lock。所以"勾选生物识别"路径上 loop 更明显。
+     *
+     * 修法:wizard 默认改成 [LockPrefs.TimeoutTier.SHORT](15 秒)。Settings 里
+     * 可改回 IMMEDIATE(只对安全极敏感用户友好)。
+     *
+     * 不改 IMMEDIATE.timeoutMs 的全局值:已经设了 IMMEDIATE 的用户保留他们的语义。
      */
     fun onFinishSetup() {
         val currentPin = pin ?: return
@@ -269,7 +294,7 @@ class SetupWizardViewModel @Inject constructor(
                 lockController.finishSetup(
                     handle = handle,
                     lockEnabled = true,
-                    timeout = LockPrefs.TimeoutTier.IMMEDIATE,
+                    timeout = LockPrefs.TimeoutTier.SHORT,
                 )
                 SecretBytes.wipe(currentPin)
             } catch (t: Throwable) {
