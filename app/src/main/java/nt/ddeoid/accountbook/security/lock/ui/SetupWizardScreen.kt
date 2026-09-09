@@ -20,7 +20,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,18 +58,14 @@ fun SetupWizardScreen(
     var step by remember { mutableStateOf(SetupStep.Welcome) }
     val state by viewModel.state.collectAsState()
 
-    // 当 ViewModel crypto 完成(mnemonicWords 填充 + isInitializing 关闭)且仍停在
-    // step 3,自动跳到 step 4。这一步把"屏幕过渡"和"crypto 完成"解耦,让 UI
-    // 在 crypto 进行中显示 spinner 而不是空白页(v0.4.2 之前的写法是同步
-    // `step = MnemonicDisplay`,crypto 还在 IO 上跑 5s+,用户看到空白 step 4)。
-    LaunchedEffect(state.mnemonicWords, state.isInitializing, step) {
-        if (step == SetupStep.ConfirmAndBiometric &&
-            state.mnemonicWords.isNotEmpty() &&
-            !state.isInitializing
-        ) {
-            step = SetupStep.MnemonicDisplay
-        }
-    }
+    // v0.4.3:之前用 LaunchedEffect 把 step 3→4 的 transition 跟 crypto 完成解耦,
+    // 想避免"按完最后一位 → 空白 step 4 → 5s 后出词"的卡顿感。但 LaunchedEffect
+    // 加上 `step` 作 key 之后,在某些 recomposition 路径下会触发意外的 transition,
+    // 用户报告"再次输入 PIN 之后又切换到再次输入 PIN 界面,循环了"。
+    //
+    // v0.4.4 简化:立即 step 3→4 切换(按完最后一位马上进 step 4),busy spinner
+    // 放在 [MnemonicDisplayStep] 上 —— words 空 + isInitializing=true 时显示。
+    // 用户看到的是"按完最后一位 → 进 step 4 → spinner → 12 个词出现",路径直接。
 
     when (step) {
         SetupStep.Welcome -> WelcomeStep(
@@ -84,11 +79,10 @@ fun SetupWizardScreen(
             modifier = modifier,
         )
         SetupStep.ConfirmAndBiometric -> ConfirmAndBiometricStep(
-            isInitializing = state.isInitializing,
             onConfirmed = {
                 viewModel.onEnterMnemonicStep()
-                // 不要立刻 transition 到 step 4 —— 交给上面的 LaunchedEffect 在
-                // crypto 完成后触发。crypto 在 IO 上跑可能 5s+,立刻跳会看到空白页。
+                // 立即进 step 4;busy spinner 在 MnemonicDisplayStep 里(words 空 + isInitializing=true)
+                step = SetupStep.MnemonicDisplay
             },
             onMismatch = { step = SetupStep.PinEntry },
             viewModel = viewModel,
@@ -96,6 +90,7 @@ fun SetupWizardScreen(
         )
         SetupStep.MnemonicDisplay -> MnemonicDisplayStep(
             words = state.mnemonicWords,
+            isInitializing = state.isInitializing,
             onAcknowledged = { step = SetupStep.MnemonicVerify },
             modifier = modifier,
         )
@@ -198,7 +193,6 @@ private fun ConfirmAndBiometricStep(
     onConfirmed: () -> Unit,
     onMismatch: () -> Unit,
     viewModel: SetupWizardViewModel,
-    isInitializing: Boolean,
     modifier: Modifier = Modifier,
 ) {
     var mismatchError by remember { mutableStateOf(false) }
@@ -223,9 +217,6 @@ private fun ConfirmAndBiometricStep(
         }
         PinKeypad(
             onSubmit = { pin ->
-                // isInitializing 期间 keypad 已禁用,理论上不会到这里;但留着
-                // guard 防止 keyboard input 在 race 下又提交一份。
-                if (isInitializing) return@PinKeypad
                 if (viewModel.onPinConfirmed(pin)) {
                     mismatchError = false
                     viewModel.onBiometricToggled(biometricChecked)
@@ -236,34 +227,10 @@ private fun ConfirmAndBiometricStep(
                 }
             },
             maxLength = SetupWizardViewModel.MIN_PIN_LENGTH,
-            enabled = !isInitializing,
-            busy = isInitializing,
         )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            // crypto 进行中禁用勾选框 —— 改了状态也保存不了,只会让用户困惑
-        ) {
-            Checkbox(
-                checked = biometricChecked,
-                onCheckedChange = { if (!isInitializing) biometricChecked = it },
-                enabled = !isInitializing,
-            )
-            Text(
-                stringResource(R.string.wizard_biometric_label),
-                color = if (isInitializing) {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-            )
-        }
-        if (isInitializing) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "正在准备加密密钥……",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = biometricChecked, onCheckedChange = { biometricChecked = it })
+            Text(stringResource(R.string.wizard_biometric_label))
         }
     }
 }
@@ -273,6 +240,7 @@ private fun ConfirmAndBiometricStep(
 @Composable
 private fun MnemonicDisplayStep(
     words: List<String>,
+    isInitializing: Boolean,
     onAcknowledged: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -292,21 +260,65 @@ private fun MnemonicDisplayStep(
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(8.dp))
-        // 12 词以 3 列网格展示,每词带 1-12 的序号
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            words.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    row.forEach { w ->
-                        MnemonicWordCell(index = words.indexOf(w) + 1, word = w, modifier = Modifier.weight(1f))
+        when {
+            words.isNotEmpty() -> {
+                // 12 词以 3 列网格展示,每词带 1-12 的序号
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    words.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            row.forEach { w ->
+                                MnemonicWordCell(index = words.indexOf(w) + 1, word = w, modifier = Modifier.weight(1f))
+                            }
+                            // 不足 3 个的填 Spacer 撑开
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
                     }
-                    // 不足 3 个的填 Spacer 撑开
-                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onAcknowledged, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.wizard_mnemonic_ack))
                 }
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        Button(onClick = onAcknowledged, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.wizard_mnemonic_ack))
+            isInitializing -> {
+                // v0.4.3 修复 #48:按完最后一位立即进 step 4;crypto 在 IO 上跑,
+                // 期间展示 spinner + "正在准备加密密钥……"。crypto 完成后 _state.update
+                // populate words → 跳到上面的 word grid 分支。
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        "正在准备加密密钥……",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            else -> {
+                // crypto 失败的兜底 —— 理论上不会到这(KeyVault 已兜底所有 keystore
+                // 异常 + ViewModel catch 块 reset isInitializing),真到了给个提示。
+                // 完整重试 UI 是后续 issue。
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "加密密钥生成失败",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button(
+                        onClick = onAcknowledged,
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.wizard_mnemonic_ack))
+                    }
+                }
+            }
         }
     }
 }
