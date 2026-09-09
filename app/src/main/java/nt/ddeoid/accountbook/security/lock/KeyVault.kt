@@ -155,9 +155,21 @@ class KeyVault @Inject constructor(
         // setUserAuthenticationRequired 的密钥;只 catch BlobCorrupted,不 catch 父类
         // CryptoException —— 其他错误(如 unwrap 失败)继续响亮失败,免得吞掉真 bug。
         val bioKey: javax.crypto.SecretKey? = if (biometricEnabled) {
+            // 生物识别路径整体是 **best-effort**:任何环境问题都不应该让用户的
+            // PIN setup 失败 —— 用户可能没设 secure lock screen、Keystore 可能 binder
+            // 死锁、StrongBox 不可用、设备被 OEM 锁定等。这里吞所有 [Throwable],
+            // 只 Log.w 不上抛,生物识别后续可在 Settings → enableBiometric 重试。
+            //
+            // 其他路径([unlockWithPin] / [changePin] / [reenrollBiometric] / [enableBiometric])
+            // 的 catch 仍然窄 catch —— 那些是用户的关键解锁路径,环境失败要响亮上报,
+            // 免得静默吞掉真 bug。
+            //
+            // v0.4.2 这一段在 Main 上跑,emulator 无 lock screen 时 Keystore 还要走完整
+            // 三步才抛错,合计 > 5 s 触发 ANR。修复:caller(SetupWizardViewModel)
+            // 用注入的 [CoroutineDispatcher] 把整段 [initialize] 切到 IO 上跑。
             try {
                 keystoreAccess.ensureBiometricKey()
-            } catch (e: CryptoException.BlobCorrupted) {
+            } catch (e: Throwable) {
                 android.util.Log.w(
                     "KeyVault",
                     "生物识别密钥创建失败,跳过生物识别路径;setup 仍正常完成," +

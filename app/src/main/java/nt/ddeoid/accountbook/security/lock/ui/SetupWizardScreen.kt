@@ -59,6 +59,19 @@ fun SetupWizardScreen(
     var step by remember { mutableStateOf(SetupStep.Welcome) }
     val state by viewModel.state.collectAsState()
 
+    // 当 ViewModel crypto 完成(mnemonicWords 填充 + isInitializing 关闭)且仍停在
+    // step 3,自动跳到 step 4。这一步把"屏幕过渡"和"crypto 完成"解耦,让 UI
+    // 在 crypto 进行中显示 spinner 而不是空白页(v0.4.2 之前的写法是同步
+    // `step = MnemonicDisplay`,crypto 还在 IO 上跑 5s+,用户看到空白 step 4)。
+    LaunchedEffect(state.mnemonicWords, state.isInitializing, step) {
+        if (step == SetupStep.ConfirmAndBiometric &&
+            state.mnemonicWords.isNotEmpty() &&
+            !state.isInitializing
+        ) {
+            step = SetupStep.MnemonicDisplay
+        }
+    }
+
     when (step) {
         SetupStep.Welcome -> WelcomeStep(
             onStart = { step = SetupStep.PinEntry },
@@ -71,9 +84,11 @@ fun SetupWizardScreen(
             modifier = modifier,
         )
         SetupStep.ConfirmAndBiometric -> ConfirmAndBiometricStep(
+            isInitializing = state.isInitializing,
             onConfirmed = {
                 viewModel.onEnterMnemonicStep()
-                step = SetupStep.MnemonicDisplay
+                // 不要立刻 transition 到 step 4 —— 交给上面的 LaunchedEffect 在
+                // crypto 完成后触发。crypto 在 IO 上跑可能 5s+,立刻跳会看到空白页。
             },
             onMismatch = { step = SetupStep.PinEntry },
             viewModel = viewModel,
@@ -183,6 +198,7 @@ private fun ConfirmAndBiometricStep(
     onConfirmed: () -> Unit,
     onMismatch: () -> Unit,
     viewModel: SetupWizardViewModel,
+    isInitializing: Boolean,
     modifier: Modifier = Modifier,
 ) {
     var mismatchError by remember { mutableStateOf(false) }
@@ -207,6 +223,9 @@ private fun ConfirmAndBiometricStep(
         }
         PinKeypad(
             onSubmit = { pin ->
+                // isInitializing 期间 keypad 已禁用,理论上不会到这里;但留着
+                // guard 防止 keyboard input 在 race 下又提交一份。
+                if (isInitializing) return@PinKeypad
                 if (viewModel.onPinConfirmed(pin)) {
                     mismatchError = false
                     viewModel.onBiometricToggled(biometricChecked)
@@ -217,10 +236,34 @@ private fun ConfirmAndBiometricStep(
                 }
             },
             maxLength = SetupWizardViewModel.MIN_PIN_LENGTH,
+            enabled = !isInitializing,
+            busy = isInitializing,
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = biometricChecked, onCheckedChange = { biometricChecked = it })
-            Text(stringResource(R.string.wizard_biometric_label))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            // crypto 进行中禁用勾选框 —— 改了状态也保存不了,只会让用户困惑
+        ) {
+            Checkbox(
+                checked = biometricChecked,
+                onCheckedChange = { if (!isInitializing) biometricChecked = it },
+                enabled = !isInitializing,
+            )
+            Text(
+                stringResource(R.string.wizard_biometric_label),
+                color = if (isInitializing) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+        }
+        if (isInitializing) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "正在准备加密密钥……",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

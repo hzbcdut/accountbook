@@ -91,4 +91,20 @@ object DatabaseModule {
     @Singleton
     fun provideLockControllerScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * 给 [nt.ddeoid.accountbook.security.lock.ui.SetupWizardViewModel] 用的 IO dispatcher。
+     *
+     * v0.4.2 用户报告:勾选"启用生物识别"后输入确认 PIN 的最后一个字符 → ANR。
+     * 根因:`keyVault.initialize` 整段(600k PBKDF2 + 可选 Keystore init/spec/generate
+     * 三步)在 Main 上跑,emulator 无 secure lock screen 时 Keystore 还要走完整三步才
+     * 抛 BlobCorrupted,合计 > 5 s → Input dispatching timed out。注入 IO dispatcher
+     * 之后 [SetupWizardViewModel.onEnterMnemonicStep] 把 crypto 切到 IO 上跑。
+     *
+     * 用 [Dispatchers.IO] 而不是 `Default` / 自定义:KeyVault 的 PBKDF2 + Keystore
+     * 都是阻塞型 IO,IO 池的线程数(默认 64)足够并发 wizard 的单次调用。
+     */
+    @Provides
+    @Singleton
+    fun provideCryptoDispatcher(): kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
 }

@@ -434,6 +434,69 @@ class KeyVaultTest {
         }
     }
 
+    // --- biometric 异常吞咽(v0.4.2 Bug #47 修复回归)-----------------
+
+    /**
+     * Bug #47 回归 v0.4.2:放宽 `KeyVault.initialize*` 中 `ensureBiometricKey()`
+     * 的 catch,从 `CryptoException.BlobCorrupted` 改成 `Throwable`。理由是
+     * biometric 路径整体是 **best-effort** —— emulator 无 secure lock screen、
+     * Keystore 抛 `IllegalStateException`、StrongBox 不可用、binder 死锁、
+     * OEM 定制 Keystore 抛自定义异常等,都不应当让用户的 PIN setup 失败。
+     *
+     * 这条用例模拟"非 BlobCorrupted 的任意 Throwable"(e.g. `KeyStoreException`、
+     * `IllegalStateException`、OEM 自定义),验证 setup 仍正常完成。
+     */
+    @Test
+    fun `initialize biometric path swallows arbitrary Throwable and completes`() {
+        // 切到一个专门抛非 BlobCorrupted 的子类
+        keystore.customThrowableToThrow = java.lang.IllegalStateException(
+            "OEM Keystore binder 死锁 / 模拟强 box 不可用",
+        )
+        val pin = "123456".toCharArray()
+        val setup = try {
+            vault.initialize(pin, codec, biometricEnabled = true)
+        } finally {
+            SecretBytes.wipe(pin)
+        }
+        try {
+            assertTrue("任意 Throwable 都应被吞下,setup 仍完成", vault.isInitialized())
+            assertTrue(vault.hasPin())
+            assertFalse(
+                "Keystore 失败时 bio blob 不写,hasBiometric() 应当为 false",
+                vault.hasBiometric(),
+            )
+            assertEquals(12, setup.mnemonic.size)
+        } finally {
+            setup.masterKey.wipe()
+        }
+    }
+
+    /**
+     * Bug #47 回归 v0.4.2:原来的行为 —— `BlobCorrupted` 被吞下 —— 必须保留。
+     * (这条本来就被 `initialize with biometricEnabled true but Keystore failing
+     * skips bio blob and completes` 覆盖,但这里再写一遍,明确"BlobCorrupted 这一
+     * 类型仍在 catch 范围内"的不变量。)
+     */
+    @Test
+    fun `initialize biometric path swallows BlobCorrupted and completes`() {
+        keystore.shouldThrowOnEnsureBiometricKey = true
+        val pin = "123456".toCharArray()
+        val setup = try {
+            vault.initialize(pin, codec, biometricEnabled = true)
+        } finally {
+            SecretBytes.wipe(pin)
+        }
+        try {
+            assertTrue(vault.isInitialized())
+            assertTrue(vault.hasPin())
+            assertFalse(vault.hasBiometric())
+        } finally {
+            setup.masterKey.wipe()
+        }
+    }
+
+    // ---------------------------------------------------------------------
+
     @Test
     fun `initializeWithExistingEntropy with biometricEnabled false skips bio blob`() {
         // 迁移路径(LegacyKeyMigrator)走的就是这个分支。
@@ -657,12 +720,24 @@ private class FakeKeystoreAccess : KeystoreAccess {
      */
     @Volatile var shouldThrowOnEnsureBiometricKey: Boolean = false
 
+    /**
+     * 测试 seam:模拟"非 BlobCorrupted 的任意 Throwable",用于验证
+     * v0.4.2 Bug #47 放宽 catch 后的 best-effort 行为。
+     * 例如 `KeyStoreException`、`IllegalStateException`(StrongBox 不可用、
+     * binder 死锁、OEM 定制 Keystore 异常等)。
+     *
+     * 优先级高于 [shouldThrowOnEnsureBiometricKey]:即使后者为 true,只要
+     * 这里非 null,就用这个 throwable。
+     */
+    @Volatile var customThrowableToThrow: Throwable? = null
+
     private val keys: MutableMap<String, SecretKey> = mutableMapOf()
     private val fixedKey: SecretKey = SecretKeySpec(ByteArray(32) { it.toByte() }, "AES")
 
     override val biometricKeyAlias: String = "test_bio_v1"
 
     override fun ensureBiometricKey(): SecretKey {
+        customThrowableToThrow?.let { throw it }
         if (shouldThrowOnEnsureBiometricKey) {
             throw CryptoException.BlobCorrupted(
                 "FakeKeystoreAccess 模拟:Keystore 不可用 / 无 secure lock screen",
@@ -674,6 +749,7 @@ private class FakeKeystoreAccess : KeystoreAccess {
     }
 
     override fun ensureBiometricKeyAlias(): String {
+        customThrowableToThrow?.let { throw it }
         if (shouldThrowOnEnsureBiometricKey) {
             throw CryptoException.BlobCorrupted(
                 "FakeKeystoreAccess 模拟:Keystore 不可用 / 无 secure lock screen",

@@ -3,11 +3,14 @@ package nt.ddeoid.accountbook.security.lock.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import nt.ddeoid.accountbook.security.crypto.MnemonicCodec
 import nt.ddeoid.accountbook.security.crypto.SecretBytes
 import nt.ddeoid.accountbook.security.lock.LockController
@@ -51,6 +54,14 @@ class SetupWizardViewModel @Inject constructor(
     private val lockController: LockController,
     private val lockPrefs: LockPrefs,
     private val mnemonicCodec: MnemonicCodec,
+    /**
+     * [KeyVault.initialize] 跑 600k PBKDF2 + 可选的 Keystore create/delete,emulator
+     * 无 secure lock screen 时 Keystore 那段还要走完整 init → spec → generateKey 三步
+     * 才抛异常,合计 > 5 s,Main 上跑会 ANR。注入而不是直接 `Dispatchers.IO`,是因为测试用
+     * `runTest` + `UnconfinedTestDispatcher` 时不会跟踪真实 IO 任务,需要传
+     * `UnconfinedTestDispatcher()` 进去让断言立刻可见。
+     */
+    private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SetupWizardUiState())
@@ -127,29 +138,62 @@ class SetupWizardViewModel @Inject constructor(
      * 没有"步骤回退"事件,这里采用"每次进入 step 4 都生成新熵"的策略 —— 简单,
      * 多花一次 PBKDF2,但走不到生产路径(用户在步骤之间反复横跳属异常)。
      *
-     * ## 不切到 Default
+     * ## crypto 工作必须跑在 [cryptoDispatcher]
      *
-     * 故意不在这里 `withContext(Dispatchers.Default)`,因为这一步只跑一次、用户
-     * 也明确点了"进入下一步",500ms 的 PBKDF2 阻塞主线程是肉眼看不见的;但保持
-     * 调用栈在 [viewModelScope] 的 Main 上,让测试用 [UnconfinedTestDispatcher]
-     * 时不用处理"真实 Default 派发"的等待问题 —— 参见
-     * [SetupWizardViewModelTest]。
+     * v0.4.2 用户报告:勾选"启用生物识别"后输入确认 PIN 的最后一个字符 → ANR。
+     * 根因是 `keyVault.initialize(...)` 整段(PBKDF2 600k + 可选 Keystore init →
+     * spec → generateKey)在 Main 线程上跑,emulator 无 secure lock screen 时
+     * Keystore 那段还要走完整三步才抛 BlobCorrupted,合计 > 5 s → Input dispatching
+     * timed out。修复后用注入的 [cryptoDispatcher] 切走 Main;注入而不是直接
+     * `Dispatchers.IO`,是因为 `runTest` + `UnconfinedTestDispatcher` 不会跟踪
+     * 真实 IO 任务,需要测试自己传 `UnconfinedTestDispatcher()` 进去。
+     *
+     * ## 同步设 isInitializing=true
+     *
+     * 之前没有 isInitializing 字段时,UI 在 `onEnterMnemonicStep()` 返回后立即
+     * `step = MnemonicDisplay`,但 [mnemonicWords] 还没 populate(crypto 在 IO 上
+     * 跑,5s+),用户看到空白 step 4 → 卡顿感。
+     *
+     * 现在在 launch 之前同步 emit `isInitializing = true`,UI 拿这个状态显示 busy
+     * spinner 并禁用 keypad;crypto 跑完后 emit `isInitializing = false` 同时
+     * populate mnemonicWords,UI 再用 LaunchedEffect 跳 step 4。
      */
     fun onEnterMnemonicStep() {
         wipeMnemonicAndMasterKey()
+        _state.update { it.copy(isInitializing = true) }
         viewModelScope.launch {
-            val currentPin = pin ?: return@launch
-            // TODO(Bug #39):如果生物识别 setup 静默失败(无 secure lock screen),
-            // UI 应当提示用户。v0.4.2 仅修复崩溃,UX 留作 #39。
-            val setupResult = keyVault.initialize(currentPin, mnemonicCodec, biometricEnabled)
-            mnemonic = setupResult.mnemonic
-            masterKey = setupResult.masterKey
-            entropy = setupResult.entropy
-            _state.update {
-                it.copy(
-                    mnemonicWords = setupResult.mnemonic,
-                    verificationTargetIndex = (0 until WORD_COUNT).random(),
+            val currentPin = pin ?: run {
+                _state.update { it.copy(isInitializing = false) }
+                return@launch
+            }
+            // TODO:如果生物识别 setup 静默失败(无 secure lock screen),
+            // UI 应当提示用户。当前只修崩溃,UX 留作后续 issue。
+            try {
+                val setupResult = withContext(cryptoDispatcher) {
+                    keyVault.initialize(currentPin, mnemonicCodec, biometricEnabled)
+                }
+                mnemonic = setupResult.mnemonic
+                masterKey = setupResult.masterKey
+                entropy = setupResult.entropy
+                _state.update {
+                    it.copy(
+                        mnemonicWords = setupResult.mnemonic,
+                        verificationTargetIndex = (0 until WORD_COUNT).random(),
+                        isInitializing = false,
+                    )
+                }
+            } catch (t: Throwable) {
+                // crypto 失败(理论上 setup 路径不会,KeyVault 已兜底所有 keystore 异常;
+                // 这里的 catch 是为了不让 isInitializing 卡在 true → spinner 永转 → UI 死锁)。
+                // Log + 重置 state:viewModelScope 是 SupervisorJob,未捕获异常会被吞,
+                // 但我们不 rethrow —— rethrow 在 `runTest` 测试里会让整个测试 fail,而
+                // 生产环境 viewModelScope 也会吞掉,等价行为。Log.e 保留现场。
+                android.util.Log.e(
+                    "SetupWizardViewModel",
+                    "keyVault.initialize 失败,UI 应提示用户重试(当前还没做)",
+                    t,
                 )
+                _state.update { it.copy(isInitializing = false) }
             }
         }
     }
@@ -244,8 +288,13 @@ class SetupWizardViewModel @Inject constructor(
  *
  * @param mnemonicWords 步骤 4 显示的 12 词;只在 step 4/5 期间非空。
  * @param verificationTargetIndex 步骤 5 要用户填的格子下标。
+ * @param isInitializing 步骤 3 → 4 之间 crypto 是否在跑。true 时 UI 应显示
+ *   busy spinner 并禁用 keypad;false 时如果 [mnemonicWords] 非空则可跳到 step 4。
+ *   v0.4.2 引入,目的是把"按完最后一位 → 空白页 → 5s 后出词"的卡顿感改成
+ *   "按完最后一位 → spinner → 出词"的可感知进度。
  */
 data class SetupWizardUiState(
     val mnemonicWords: List<String> = emptyList(),
     val verificationTargetIndex: Int = -1,
+    val isInitializing: Boolean = false,
 )
