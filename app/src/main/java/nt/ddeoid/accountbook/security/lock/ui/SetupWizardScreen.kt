@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -58,6 +59,26 @@ fun SetupWizardScreen(
     var step by remember { mutableStateOf(SetupStep.Welcome) }
     val state by viewModel.state.collectAsState()
 
+    // v0.4.5 修复 + 防御:吃掉 wizard 期间的 back 键。
+    //
+    // 用户报告"再次输入 PIN 后又切换到再次输入 PIN 界面,循环",我在 emulator 上复现
+    // 不到状态机循环 —— 但发现 **按 back 键会把整个 activity pop 到 launcher**(因为
+    // SetupWizard 是 startDestination,backstack 只有它一个)。app 退出后用户重开 →
+    // bootstrap 看到 NeedsSetup → 重启 wizard → 用户从 step 1 重新走到 step 3。
+    // 用户感知就是"又到再次输入 PIN 了"。
+    //
+    // 修法:用 BackHandler 吞掉 step 2-6 期间的 back 按键(Welcome 仍允许 back,
+    // 因为 Welcome 还有 Skip 按钮是合法的退出路径)。step 2 之后用户已经做了不可逆
+    // 的承诺(键入了 8 位 PIN),这时候中断 → 进程退出 → 重新走一遍 wizard 是用户
+    // 真正不想要的体验;安全上不会变差(只是不让"看起来在循环"了,实际的 wizard
+    // 仍然在内存里跑)。
+    BackHandler(enabled = step != SetupStep.Welcome) {
+        android.util.Log.d(
+            "SetupWizardScreen",
+            "BACK 键被吃掉:step=$step 还在 wizard 中,继续等待用户完成",
+        )
+    }
+
     // v0.4.3:之前用 LaunchedEffect 把 step 3→4 的 transition 跟 crypto 完成解耦,
     // 想避免"按完最后一位 → 空白 step 4 → 5s 后出词"的卡顿感。但 LaunchedEffect
     // 加上 `step` 作 key 之后,在某些 recomposition 路径下会触发意外的 transition,
@@ -67,37 +88,58 @@ fun SetupWizardScreen(
     // 放在 [MnemonicDisplayStep] 上 —— words 空 + isInitializing=true 时显示。
     // 用户看到的是"按完最后一位 → 进 step 4 → spinner → 12 个词出现",路径直接。
 
+    // v0.4.5 诊断日志:用户报告"勾选生物识别 + 再次输入 PIN 后又切换到再次输入 PIN 界面,循环",
+    // 每个 step 转换都打 Log.d,让用户能抓 logcat 看到底是哪条路径在跑。
+    android.util.Log.d("SetupWizardScreen", "compose: step=$step isInitializing=${state.isInitializing} words.size=${state.mnemonicWords.size}")
+
     when (step) {
         SetupStep.Welcome -> WelcomeStep(
-            onStart = { step = SetupStep.PinEntry },
+            onStart = {
+                android.util.Log.d("SetupWizardScreen", "step transition: Welcome → PinEntry (onStart)")
+                step = SetupStep.PinEntry
+            },
             onSkip = viewModel::onSkipSetup,
             modifier = modifier,
         )
         SetupStep.PinEntry -> PinEntryStep(
-            onPinAccepted = { step = SetupStep.ConfirmAndBiometric },
+            onPinAccepted = {
+                android.util.Log.d("SetupWizardScreen", "step transition: PinEntry → ConfirmAndBiometric (onPinAccepted)")
+                step = SetupStep.ConfirmAndBiometric
+            },
             viewModel = viewModel,
             modifier = modifier,
         )
         SetupStep.ConfirmAndBiometric -> ConfirmAndBiometricStep(
             onConfirmed = {
+                android.util.Log.d(
+                    "SetupWizardScreen",
+                    "step transition: ConfirmAndBiometric → MnemonicDisplay (onConfirmed)",
+                )
                 viewModel.onEnterMnemonicStep()
                 // 立即进 step 4;busy spinner 在 MnemonicDisplayStep 里(words 空 + isInitializing=true)
                 step = SetupStep.MnemonicDisplay
             },
-            onMismatch = { step = SetupStep.PinEntry },
+            onMismatch = {
+                android.util.Log.d("SetupWizardScreen", "step transition: ConfirmAndBiometric → PinEntry (onMismatch)")
+                step = SetupStep.PinEntry
+            },
             viewModel = viewModel,
             modifier = modifier,
         )
         SetupStep.MnemonicDisplay -> MnemonicDisplayStep(
             words = state.mnemonicWords,
             isInitializing = state.isInitializing,
-            onAcknowledged = { step = SetupStep.MnemonicVerify },
+            onAcknowledged = {
+                android.util.Log.d("SetupWizardScreen", "step transition: MnemonicDisplay → MnemonicVerify (onAcknowledged)")
+                step = SetupStep.MnemonicVerify
+            },
             modifier = modifier,
         )
         SetupStep.MnemonicVerify -> MnemonicVerifyStep(
             targetIndex = state.verificationTargetIndex,
             onSubmit = { position, word ->
                 val ok = viewModel.onVerificationWordSubmitted(position, word)
+                android.util.Log.d("SetupWizardScreen", "MnemonicVerify onSubmit: position=$position ok=$ok")
                 if (ok) {
                     viewModel.onFinishSetup()
                     step = SetupStep.Finishing
@@ -217,11 +259,20 @@ private fun ConfirmAndBiometricStep(
         }
         PinKeypad(
             onSubmit = { pin ->
+                android.util.Log.d(
+                    "ConfirmAndBiometricStep",
+                    "onSubmit: raw.length=${pin.size} biometricChecked=$biometricChecked",
+                )
                 if (viewModel.onPinConfirmed(pin)) {
+                    android.util.Log.d(
+                        "ConfirmAndBiometricStep",
+                        "onPinConfirmed → true,biometricEnabled 设成 $biometricChecked",
+                    )
                     mismatchError = false
                     viewModel.onBiometricToggled(biometricChecked)
                     onConfirmed()
                 } else {
+                    android.util.Log.d("ConfirmAndBiometricStep", "onPinConfirmed → false (mismatch or pin=null)")
                     mismatchError = true
                     onMismatch()
                 }
@@ -244,6 +295,10 @@ private fun MnemonicDisplayStep(
     onAcknowledged: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    android.util.Log.d(
+        "MnemonicDisplayStep",
+        "compose: words.size=${words.size} isInitializing=$isInitializing",
+    )
     Column(
         modifier = modifier
             .fillMaxSize()

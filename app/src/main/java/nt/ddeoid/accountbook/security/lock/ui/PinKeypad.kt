@@ -95,6 +95,8 @@ fun PinKeypad(
                                 "<" -> backspace(buffer, length) { length = it }
                                 else -> appendDigit(buffer, key[0], length) { newLen ->
                                     if (newLen == maxLength) {
+                                        // v0.4.5 诊断:onSubmit 触发时打 log,看 maxLength 时 buffer 内容是否还完整
+                                        android.util.Log.d("PinKeypad", "onSubmit 触发: maxLength=$maxLength reached")
                                         // 提交:复制 buffer 给 caller,清自己的
                                         onSubmit(buffer.copyOf().also { SecretBytes.wipe(buffer) })
                                         length = 0

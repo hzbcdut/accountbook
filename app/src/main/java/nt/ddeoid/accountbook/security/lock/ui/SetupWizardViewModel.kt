@@ -114,14 +114,30 @@ class SetupWizardViewModel @Inject constructor(
 
     /** 步骤 3:确认 PIN。返回 true 表示通过。 */
     fun onPinConfirmed(raw: CharArray): Boolean {
-        val expected = pin ?: return false
+        val expected = pin
+        if (expected == null) {
+            // v0.4.5 防御:用户报告"再次输入 PIN 之后又切换到 PIN 界面",log 一下
+            // pin 为 null 的情况,定位是 onCleared 跑了还是 onPinConfirmed 的 else
+            // 分支跑了。理论上 step 2 → step 3 期间 pin 不该 null。
+            android.util.Log.w(
+                "SetupWizardViewModel",
+                "onPinConfirmed: pin 字段为 null,raw.length=${raw.size}",
+            )
+            SecretBytes.wipe(raw)
+            return false
+        }
         return if (raw.contentEquals(expected)) {
             SecretBytes.wipe(raw)
+            android.util.Log.d("SetupWizardViewModel", "onPinConfirmed: 匹配")
             true
         } else {
             SecretBytes.wipe(raw)
             pin?.let { SecretBytes.wipe(it) }
             pin = null
+            android.util.Log.w(
+                "SetupWizardViewModel",
+                "onPinConfirmed: 不匹配,清掉 pin",
+            )
             false
         }
     }
@@ -159,19 +175,35 @@ class SetupWizardViewModel @Inject constructor(
      * populate mnemonicWords,UI 再用 LaunchedEffect 跳 step 4。
      */
     fun onEnterMnemonicStep() {
+        android.util.Log.d(
+            "SetupWizardViewModel",
+            "onEnterMnemonicStep: pin=${pin != null} biometricEnabled=$biometricEnabled",
+        )
         wipeMnemonicAndMasterKey()
         _state.update { it.copy(isInitializing = true) }
         viewModelScope.launch {
             val currentPin = pin ?: run {
                 _state.update { it.copy(isInitializing = false) }
+                android.util.Log.w(
+                    "SetupWizardViewModel",
+                    "onEnterMnemonicStep coroutine: pin 字段为 null,直接 return",
+                )
                 return@launch
             }
             // TODO:如果生物识别 setup 静默失败(无 secure lock screen),
             // UI 应当提示用户。当前只修崩溃,UX 留作后续 issue。
             try {
+                android.util.Log.d(
+                    "SetupWizardViewModel",
+                    "onEnterMnemonicStep coroutine: 开始 keyVault.initialize",
+                )
                 val setupResult = withContext(cryptoDispatcher) {
                     keyVault.initialize(currentPin, mnemonicCodec, biometricEnabled)
                 }
+                android.util.Log.d(
+                    "SetupWizardViewModel",
+                    "onEnterMnemonicStep coroutine: keyVault.initialize 完成,生成 ${setupResult.mnemonic.size} 词",
+                )
                 mnemonic = setupResult.mnemonic
                 masterKey = setupResult.masterKey
                 entropy = setupResult.entropy
