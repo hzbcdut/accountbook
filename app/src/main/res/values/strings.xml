@@ -81,6 +81,13 @@
     <string name="wizard_mnemonic_title">抄写这 12 个词</string>
     <string name="wizard_mnemonic_body">按顺序抄在纸上。**这是唯一能恢复你账号簿的办法**。AccountBook 不存这份词,丢了就找不回来。</string>
     <string name="wizard_mnemonic_ack">我已抄好</string>
+    <string name="wizard_mnemonic_save_image">保存为图片</string>
+    <string name="wizard_mnemonic_image_saved">已保存到相册(Pictures/AccountBook)</string>
+    <string name="wizard_mnemonic_image_save_failed">保存失败:%1$s</string>
+    <string name="wizard_mnemonic_image_permission_needed">需要存储权限才能保存图片</string>
+    <string name="wizard_mnemonic_image_title">AccountBook 助记词备份</string>
+    <string name="wizard_mnemonic_image_saved_at">保存时间:%1$s</string>
+    <string name="wizard_mnemonic_image_warning">任何拿到这 12 个词的人都能解锁你的账号簿。请离线保存。</string>
     <string name="wizard_verify_title">验证一下</string>
     <string name="wizard_verify_body">请输入第 %1$d 个词</string>
     <string name="wizard_verify_wrong">词不对,检查一下抄写</string>

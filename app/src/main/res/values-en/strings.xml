@@ -76,6 +76,13 @@
     <string name="wizard_mnemonic_title">Write down these 12 words</string>
     <string name="wizard_mnemonic_body">Write them on paper in order. **This is the only way to recover your AccountBook** — AccountBook does not store this phrase anywhere.</string>
     <string name="wizard_mnemonic_ack">I have written them down</string>
+    <string name="wizard_mnemonic_save_image">Save as image</string>
+    <string name="wizard_mnemonic_image_saved">Saved to gallery (Pictures/AccountBook)</string>
+    <string name="wizard_mnemonic_image_save_failed">Save failed: %1$s</string>
+    <string name="wizard_mnemonic_image_permission_needed">Storage permission is needed to save the image</string>
+    <string name="wizard_mnemonic_image_title">AccountBook Recovery Phrase</string>
+    <string name="wizard_mnemonic_image_saved_at">Saved at: %1$s</string>
+    <string name="wizard_mnemonic_image_warning">Anyone with these 12 words can unlock your AccountBook. Keep this offline.</string>
     <string name="wizard_verify_title">Verify</string>
     <string name="wizard_verify_body">Enter the %1$d-th word</string>
     <string name="wizard_verify_wrong">Wrong word, check your transcription</string>

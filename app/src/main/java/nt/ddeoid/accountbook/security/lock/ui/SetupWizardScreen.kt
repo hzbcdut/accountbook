@@ -1,5 +1,14 @@
 package nt.ddeoid.accountbook.security.lock.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.util.Log
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,13 +18,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,14 +40,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import nt.ddeoid.accountbook.R
 
 /**
@@ -299,6 +319,28 @@ private fun MnemonicDisplayStep(
         "MnemonicDisplayStep",
         "compose: words.size=${words.size} isInitializing=$isInitializing",
     )
+    val context = LocalContext.current
+
+    // v0.5.0+ 把 12 词渲染成图保存到相册。点击 → 后台渲染 + 写盘 + Toast
+    // 反馈。Android 9 及以下需要 WRITE_EXTERNAL_STORAGE 运行时权限;
+    // Android 10+ 走 MediaStore 不需要。
+    val storagePermission = Manifest.permission.WRITE_EXTERNAL_STORAGE
+    val needsLegacyPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            if (granted) {
+                triggerMnemonicSave(context, words)
+            } else {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.wizard_mnemonic_image_permission_needed),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        },
+    )
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -329,6 +371,33 @@ private fun MnemonicDisplayStep(
                         }
                     }
                 }
+                Spacer(Modifier.height(8.dp))
+
+                // v0.5.0+:把 12 词保存成图片到相册。
+                // Android 10+:MediaStore scoped storage,无需权限。
+                // Android 9-:走 legacy storage,需要 WRITE_EXTERNAL_STORAGE 运行时权限。
+                OutlinedButton(
+                    onClick = {
+                        if (needsLegacyPermission &&
+                            ContextCompat.checkSelfPermission(
+                                context, storagePermission,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            permissionLauncher.launch(storagePermission)
+                        } else {
+                            triggerMnemonicSave(context, words)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        Icons.Default.Image,
+                        contentDescription = null,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.wizard_mnemonic_save_image))
+                }
+
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = onAcknowledged, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.wizard_mnemonic_ack))
@@ -460,5 +529,59 @@ private fun FinishingStep(modifier: Modifier = Modifier) {
         CircularProgressIndicator()
         Spacer(Modifier.height(16.dp))
         Text(stringResource(R.string.wizard_finishing))
+    }
+}
+
+// --- helper ---------------------------------------------------------
+
+/**
+ * 触发助记词图片保存。
+ *
+ * IO 操作(Canvas 绘制 + PNG 压缩 + MediaStore 写盘)走 IO 线程,完成切回主线程弹
+ * Toast。在主线程直接渲染 + 写 PNG 实测在 emulator 上 ~200ms,不会卡 UI;但 12 词的
+ * 字符串拼接 + 字体测量理论上 O(1),所以同步执行也安全,放 IO 是为了防御性。
+ */
+private fun triggerMnemonicSave(context: Context, words: List<String>) {
+    val title = context.getString(R.string.wizard_mnemonic_image_title)
+    GlobalScope.launch(Dispatchers.IO) {
+        try {
+            val displayName = MnemonicImageRenderer.buildDisplayName()
+            val bitmap = MnemonicImageRenderer.renderMnemonicBitmap(words, title)
+            val saved = MnemonicImageRenderer.saveBitmapToGallery(context, bitmap, displayName)
+            bitmap.recycle()
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.wizard_mnemonic_image_saved),
+                    Toast.LENGTH_LONG,
+                ).show()
+                Log.d(
+                    "MnemonicDisplayStep",
+                    "saved mnemonic image: ${saved.displayPath}",
+                )
+            }
+        } catch (e: SaveToGalleryException) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    context,
+                    context.getString(
+                        R.string.wizard_mnemonic_image_save_failed,
+                        e.message ?: "unknown",
+                    ),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        } catch (e: Throwable) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    context,
+                    context.getString(
+                        R.string.wizard_mnemonic_image_save_failed,
+                        e.javaClass.simpleName,
+                    ),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 }

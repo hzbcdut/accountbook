@@ -9,6 +9,13 @@
     <!-- Android 13+:通知栏常驻 Tile / 紧急锁 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 保存助记词备份图片。Android 10+ (API 29+) 用 scoped storage (MediaStore)
+         不需要权限;Android 9 及以下需要 WRITE_EXTERNAL_STORAGE 运行时权限。
+         maxSdkVersion=28 让系统在 Android 10+ 不会要求用户授权。 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <!-- 严格离线:不申请 INTERNET -->
     <!-- 自动备份:写入应用专属 Documents 目录,不需要外部存储权限 -->
 
