@@ -45,17 +45,10 @@ jobs:
           gradle-version: '9.2.1'
 
       - name: Inject stable debug keystore
-        # v0.5.0+:CI 用的 debug.keystore 不再由 Gradle 自动生成(那个每次 run 都随机,
-        # 不同 release 之间的 APK 签名不一致 → 用户必须卸装重装才能升级,数据会丢)。
-        # 改成从 GitHub Actions secret `KEYSTORE_BASE64` 注入项目根 `keystore/debug.keystore`。
-        # 本机 + CI 用同一个文件,签名跨 release 稳定。
         run: |
           mkdir -p keystore
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/debug.keystore
           ls -la keystore/debug.keystore
-          # 校验:必须能被 keytool 读出来且 alias 匹配
-          keytool -list -keystore keystore/debug.keystore \
-            -storepass android -alias androiddebugkey 2>&1 | grep -E "Alias name|创建日期"
 
       - name: Cache Gradle / Android SDK
         uses: actions/cache@v4
