@@ -43,10 +43,12 @@ jobs:
         with:
           gradle-version: '9.2.1'
 
-      - name: Inject keystore (test)
-        run: echo "KEYSTORE_BASE64 length: ${#KEYSTORE_BASE64}"
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      - name: Inject stable debug keystore
+        run: |
+          mkdir -p keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/debug.keystore
+          ls -la keystore/debug.keystore
+          keytool -list -keystore keystore/debug.keystore -storepass android -alias androiddebugkey >/dev/null && echo "keystore OK"
 
       - name: Cache Gradle / Android SDK
         uses: actions/cache@v4
