@@ -32,9 +32,20 @@ android {
     }
 
     // 复用 debug keystore 签名 release 包,方便直接 adb install。
+    //
+    // v0.5.0 起改用项目内的稳定 keystore(`keystore/debug.keystore`),**不再**依赖
+    // `~/.android/debug.keystore`。原因:CI runner 每次都现场生成一个新的 debug
+    // keystore(Gradle 在 Linux 上找不到就生成),导致同一个 GitHub release 频道
+    // 的相邻版本(v0.4.3 → v0.5.0)签名不一致,用户必须卸装重装才能升,数据会丢。
+    //
+    // 现在 keystore 是项目仓库外的固定文件(已加 .gitignore),GitHub Actions 通过
+    // KEYSTORE_BASE64 secret 注入到同一路径。**sha256 永久稳定** —— 后续 v0.5.x
+    // 互相覆盖安装不需要卸装。
+    //
+    // 本机首次 setup:见 `keystore/README.md`。
     signingConfigs {
         create("releaseDebugSigning") {
-            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storeFile = file("../keystore/debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
@@ -45,6 +56,11 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isDebuggable = true
+            // v0.5.0+:debug 也用稳定 keystore,跟 release 同一个 cert。
+            // CI 上 Gradle 默认会用 ubuntu runner 上的 ~/.android/debug.keystore
+            // (每次 run 重新生成 → 签名不稳定)。这里显式指向项目 keystore 后,
+            // GitHub release 上的 debug APK 跟 release APK 签名一致。
+            signingConfig = signingConfigs.getByName("releaseDebugSigning")
         }
         release {
             isMinifyEnabled = false

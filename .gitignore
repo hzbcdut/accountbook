@@ -26,6 +26,13 @@ captures/
 *.jks
 *.keystore
 
+# 项目稳定签名密钥(v0.5.0+):所有 release / debug APK 都用它签,签名跨 release 稳定。
+# 不进 git —— 用户首次 setup 跑 `keystore/setup.sh` 生成,GitHub Actions 通过
+# KEYSTORE_BASE64 secret 注入同路径。详见 keystore/README.md。
+# 注意:keystore/README.md 和 keystore/setup.sh **进** git,只有 .keystore 文件本身不出 git。
+keystore/*.keystore
+keystore/*.jks
+
 # OS
 .DS_Store
 Thumbs.db
