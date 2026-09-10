@@ -92,6 +92,9 @@
     <string name="wizard_verify_body">请输入第 %1$d 个词</string>
     <string name="wizard_verify_wrong">词不对,检查一下抄写</string>
     <string name="wizard_finishing">设置完成中…</string>
+    <string name="wizard_finishing_failed_title">设置未完成</string>
+    <string name="wizard_finishing_failed_body">数据库打开失败,可能磁盘满或文件损坏。点下面按钮从第一步重新开始。</string>
+    <string name="wizard_finishing_retry">重新开始</string>
 
     <!-- Phase 4 #31: BiometricPrompt 文案(给 BiometricGate 用) -->
     <string name="biometric_title">解锁 AccountBook</string>

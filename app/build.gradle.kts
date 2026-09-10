@@ -20,8 +20,8 @@ android {
         applicationId = "nt.ddeoid.accountbook"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.5.1"
+        versionCode = 13
+        versionName = "0.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

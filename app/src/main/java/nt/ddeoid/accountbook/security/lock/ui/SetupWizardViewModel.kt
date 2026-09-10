@@ -298,9 +298,29 @@ class SetupWizardViewModel @Inject constructor(
                 )
                 SecretBytes.wipe(currentPin)
             } catch (t: Throwable) {
+                // v0.5.1 修复"验证助记词闪退":之前在这里 re-throw,异常从 viewModelScope
+                // 冒到全局 UncaughtExceptionHandler → app 闪退。LockController.finishSetup
+                // 失败的最常见原因:SQLCipher 打开 DB 失败(磁盘满 / 损坏 / 权限问题)。
+                //
+                // 正确做法:擦掉 handle + pin,把 state 推回 NeedsSetup 让 wizard 重来。
+                // KeyVault 已经在 step 4 初始化过(熵还在)→ 用户重新走完 wizard 即可,
+                // 不需要回 PIN 步骤。
                 handle.wipe()
                 SecretBytes.wipe(currentPin)
-                throw t
+                android.util.Log.e(
+                    "SetupWizardViewModel",
+                    "finishSetup 失败,state 回到 NeedsSetup 让 wizard 重来",
+                    t,
+                )
+                _state.update { it.copy(isInitializing = false) }
+                // 触发一个 StepError 让 UI 显式提示用户。SetupWizardScreen 看到
+                // state.isInitializing 从 true (Finishing 期间) 变回 false,再读
+                // setupError → 弹 dialog / toast。
+                _state.update {
+                    it.copy(
+                        setupError = t.message ?: t.javaClass.simpleName,
+                    )
+                }
             }
         }
     }
@@ -310,6 +330,18 @@ class SetupWizardViewModel @Inject constructor(
         viewModelScope.launch {
             lockController.skipSetup()
         }
+    }
+
+    /**
+     * v0.5.1:用户看到 [SetupWizardUiState.setupError] 后点"重试",清掉错误状态。
+     *
+     * 不需要重置 [mnemonic] / [masterKey] / [entropy] —— `finishSetup` 失败后这些
+     * 字段已经被 [onFinishSetup] 在 catch 块里擦掉(避免重复使用半成品),所以"重试"
+     * 实际上意味着让用户回到 Welcome 重新走一遍 wizard,不能直接跳回 verify。
+     * UI 在收到 [onSetupErrorAcknowledged] 之后把 step 推到 [SetupStep.Welcome]。
+     */
+    fun onSetupErrorAcknowledged() {
+        _state.update { it.copy(setupError = null) }
     }
 
     /** 进程被杀重入时清理残留(Q17+B)。 */
@@ -349,9 +381,14 @@ class SetupWizardViewModel @Inject constructor(
  *   busy spinner 并禁用 keypad;false 时如果 [mnemonicWords] 非空则可跳到 step 4。
  *   v0.4.2 引入,目的是把"按完最后一位 → 空白页 → 5s 后出词"的卡顿感改成
  *   "按完最后一位 → spinner → 出词"的可感知进度。
+ * @param setupError v0.5.1 引入:step 6 (`finishSetup`) 失败时把异常 message
+ *   推到 UI,Compose 端看到非空就弹 dialog 让用户重试 wizard(回到 step 4)。
+ *   之前是 catch 块 re-throw,异常从 viewModelScope 冒到全局 uncaught handler
+ *   → app 闪退,用户报"验证助记词闪退"。
  */
 data class SetupWizardUiState(
     val mnemonicWords: List<String> = emptyList(),
     val verificationTargetIndex: Int = -1,
     val isInitializing: Boolean = false,
+    val setupError: String? = null,
 )

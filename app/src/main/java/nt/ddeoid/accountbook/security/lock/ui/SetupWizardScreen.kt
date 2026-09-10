@@ -168,7 +168,18 @@ fun SetupWizardScreen(
             },
             modifier = modifier,
         )
-        SetupStep.Finishing -> FinishingStep(modifier = modifier)
+        SetupStep.Finishing -> FinishingStep(
+            errorMessage = state.setupError,
+            onRetry = {
+                android.util.Log.d(
+                    "SetupWizardScreen",
+                    "step transition: Finishing → Welcome (onRetry after finishSetup 失败)",
+                )
+                viewModel.onSetupErrorAcknowledged()
+                step = SetupStep.Welcome
+            },
+            modifier = modifier,
+        )
     }
 }
 
@@ -520,15 +531,47 @@ private fun MnemonicVerifyStep(
 // --- step 6 ---------------------------------------------------------
 
 @Composable
-private fun FinishingStep(modifier: Modifier = Modifier) {
+private fun FinishingStep(
+    errorMessage: String?,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
-        Spacer(Modifier.height(16.dp))
-        Text(stringResource(R.string.wizard_finishing))
+        if (errorMessage == null) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(16.dp))
+            Text(stringResource(R.string.wizard_finishing))
+        } else {
+            // v0.5.1 修复"验证助记词闪退":之前这里只是 spinner,异常从 viewModelScope
+            // 冒出去 → app 闪退。现在 errorMessage 非空时显示原因 + "重试" 按钮,
+            // 用户点重试 → step 回到 Welcome → 重新走 wizard。wizard 不能直接跳回
+            // verify,因为 finishSetup 失败时 mnemonic / masterKey / entropy 都被擦掉了。
+            Text(
+                stringResource(R.string.wizard_finishing_failed_title),
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                errorMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.wizard_finishing_failed_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.wizard_finishing_retry))
+            }
+        }
     }
 }
 

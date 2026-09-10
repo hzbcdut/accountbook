@@ -87,6 +87,9 @@
     <string name="wizard_verify_body">Enter the %1$d-th word</string>
     <string name="wizard_verify_wrong">Wrong word, check your transcription</string>
     <string name="wizard_finishing">Finishing setup…</string>
+    <string name="wizard_finishing_failed_title">Setup did not complete</string>
+    <string name="wizard_finishing_failed_body">Failed to open the database — possibly out of disk space or the file is corrupted. Tap below to start over from the beginning.</string>
+    <string name="wizard_finishing_retry">Start over</string>
 
     <!-- Phase 4 #31: BiometricPrompt text (for BiometricGate) -->
     <string name="biometric_title">Unlock AccountBook</string>
