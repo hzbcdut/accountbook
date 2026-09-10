@@ -25,6 +25,15 @@
     <string name="field_tags">Tags</string>
     <string name="field_notes">Notes</string>
 
+    <!-- v0.5.0: account password field -->
+    <string name="field_password">Password</string>
+    <string name="hint_password">Optional</string>
+    <string name="action_reveal_password">Show password</string>
+    <string name="action_hide_password">Hide password</string>
+    <string name="action_copy_password">Copy password</string>
+    <string name="snackbar_password_copied">Password copied, auto-clears in 60s</string>
+    <string name="detail_field_password">Password</string>
+
     <string name="theme_system">Follow system</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>

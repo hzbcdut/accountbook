@@ -43,6 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import nt.ddeoid.accountbook.R
@@ -57,6 +61,15 @@ import nt.ddeoid.accountbook.util.parseRegisteredDate
  *
  * Phase 2:全部字段一次性提交,不做内联校验动画,只做"保存时检验"。
  *
+ * ## v0.5.0 新增 `password` 字段
+ *
+ * - 初始值从 [initialPassword] 拿(可为 null / 空);提交时 `password.takeIf { it.isNotBlank() }`
+ *   转成 nullable String,空串也视作"未填"。
+ * - UI 默认 [PasswordVisualTransformation] 掩码,trailingIcon 是 👁 / 🙈 toggle。
+ * - 不参与错误校验 —— password 是可选字段。
+ * - **不**进 [HomeUiState],拿到密码后立刻通过 [onSubmit] 转给 Repository,**不**进
+ *   StateFlow 避免进 SavedStateHandle(虽然 backup 已禁,但 defense in depth)。
+ *
  * @param isEdit true = 编辑模式(标题 + 初始值由 [initialPlatform] 等提供),false = 新增。
  * @param platformSuggestions 平台自动补全候选,来自 [PlatformCatalogDao.observeAll] 的最新快照。
  */
@@ -69,6 +82,7 @@ fun AccountEditBottomSheet(
     initialAccountType: AccountType,
     initialRegisteredAt: String?,
     initialNotes: String,
+    initialPassword: String?,
     initialTagIds: Set<String>,
     allTags: List<TagEntity>,
     platformSuggestions: List<PlatformCatalogEntity>,
@@ -79,6 +93,7 @@ fun AccountEditBottomSheet(
         accountType: AccountType,
         registeredAt: String?,
         notes: String,
+        password: String?,
         tagIds: List<String>,
     ) -> Unit,
 ) {
@@ -90,6 +105,8 @@ fun AccountEditBottomSheet(
     var accountType by remember { mutableStateOf(initialAccountType) }
     var registeredAt by remember { mutableStateOf(initialRegisteredAt.orEmpty()) }
     var notes by remember { mutableStateOf(initialNotes) }
+    var password by remember { mutableStateOf(initialPassword.orEmpty()) }
+    var passwordVisible by remember { mutableStateOf(false) }
     var selectedTagIds by remember { mutableStateOf(initialTagIds) }
 
     var platformDropdownOpen by remember { mutableStateOf(false) }
@@ -259,6 +276,41 @@ fun AccountEditBottomSheet(
                 minLines = 2,
             )
 
+            // 密码(v0.5.0 新增)。可选,默认掩码,trailingIcon 切显示/隐藏。
+            // 不做强度校验 —— 第一版保持简单。
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text(stringResource(R.string.field_password)) },
+                placeholder = { Text(stringResource(R.string.hint_password)) },
+                singleLine = true,
+                visualTransformation = if (passwordVisible) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            imageVector = if (passwordVisible) {
+                                Icons.Default.VisibilityOff
+                            } else {
+                                Icons.Default.Visibility
+                            },
+                            contentDescription = stringResource(
+                                if (passwordVisible) {
+                                    R.string.action_hide_password
+                                } else {
+                                    R.string.action_reveal_password
+                                },
+                            ),
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
             // 标签
             if (allTags.isNotEmpty()) {
                 Text(
@@ -315,6 +367,7 @@ fun AccountEditBottomSheet(
                                 accountType,
                                 registeredAt.takeIf { it.isNotBlank() },
                                 notes.trim(),
+                                password.takeIf { it.isNotBlank() },
                                 selectedTagIds.toList(),
                             )
                         }

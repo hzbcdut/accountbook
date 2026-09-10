@@ -165,11 +165,12 @@ fun HomeScreen(
             initialAccountType = existing?.account?.accountType ?: AccountType.PHONE,
             initialRegisteredAt = existing?.account?.registeredAt,
             initialNotes = existing?.account?.notes.orEmpty(),
+            initialPassword = existing?.account?.password,
             initialTagIds = existing?.tags?.map { it.id }?.toSet().orEmpty(),
             allTags = state.allTags,
             platformSuggestions = platformSuggestions,
             onDismiss = { sheetTarget = null },
-            onSubmit = { platform, account, type, registeredAt, notes, tagIds ->
+            onSubmit = { platform, account, type, registeredAt, notes, password, tagIds ->
                 viewModel.submitAccount(
                     id = existing?.account?.id,
                     platform = platform,
@@ -177,6 +178,7 @@ fun HomeScreen(
                     accountType = type,
                     registeredAt = registeredAt,
                     notes = notes,
+                    password = password,
                     tagIds = tagIds,
                 )
                 sheetTarget = null

@@ -14,7 +14,9 @@ import nt.ddeoid.accountbook.data.local.entity.TagEntity
 /**
  * AccountBook 主数据库。
  *
- * - 版本 1,Phase 1 仅建表 + 写种子;后续 Phase 6 测试/迁移会再升版本。
+ * - 当前版本 2。Schema 变更历史:
+ *   - v1 → v2(v0.5.0):`accounts` 表新增 `password TEXT` 列(可空)。
+ *     见 [MIGRATION_1_2]。
  * - 通过 SQLCipher 在 [DatabaseModule] 里整体加密。
  */
 @Database(
@@ -24,7 +26,7 @@ import nt.ddeoid.accountbook.data.local.entity.TagEntity
         PlatformCatalogEntity::class,
         TagEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

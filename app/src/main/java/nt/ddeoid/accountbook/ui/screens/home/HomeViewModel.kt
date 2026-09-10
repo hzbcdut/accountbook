@@ -102,6 +102,7 @@ class HomeViewModel @Inject constructor(
         accountType: AccountType,
         registeredAt: String?,
         notes: String,
+        password: String?,
         tagIds: List<String>,
     ) {
         viewModelScope.launch {
@@ -113,6 +114,7 @@ class HomeViewModel @Inject constructor(
                 accountType = accountType,
                 registeredAt = registeredAt?.takeIf { it.isNotBlank() },
                 notes = notes.trim(),
+                password = password?.takeIf { it.isNotBlank() },
                 isActive = true,
                 createdAt = now,
                 updatedAt = now,

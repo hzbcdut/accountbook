@@ -24,7 +24,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -40,6 +43,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import nt.ddeoid.accountbook.security.clipboard.SensitiveClipboard
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -139,6 +143,18 @@ fun AccountDetailScreen(
                             Toast.LENGTH_SHORT,
                         ).show()
                     },
+                    onCopyPassword = { plain ->
+                        SensitiveClipboard.copy(
+                            context = context,
+                            text = plain,
+                            label = "AccountBook password",
+                        )
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.snackbar_password_copied),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
                     onDeleteClick = { showDeleteConfirm = true },
                 )
             }
@@ -181,6 +197,7 @@ private fun DetailContent(
     modifier: Modifier,
     row: AccountWithTags,
     onCopyAccount: () -> Unit,
+    onCopyPassword: (String) -> Unit,
     onDeleteClick: () -> Unit,
 ) {
     Column(
@@ -246,6 +263,86 @@ private fun DetailContent(
                 }
                 IconButton(onClick = onCopyAccount) {
                     Icon(Icons.Default.ContentCopy, contentDescription = stringResource(R.string.menu_copy_account))
+                }
+            }
+        }
+
+        // 密码 Card(v0.5.0 新增)。只在 password 不为 null 时渲染;默认掩码,
+        // 👁 切换明文 / 📋 走 SensitiveClipboard.copy()(60s 自动清空 +
+        // Android 13+ EXTRA_IS_SENSITIVE)。
+        row.account.password?.let { password ->
+            var passwordVisible by remember { mutableStateOf(false) }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                ),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(
+                                MaterialTheme.colorScheme.tertiaryContainer,
+                                RoundedCornerShape(20.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Key,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                    Spacer(Modifier.size(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (passwordVisible) {
+                                password
+                            } else {
+                                // 8 个点 —— 常用密码掩码视觉长度。
+                                "••••••••"
+                            },
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = stringResource(R.string.detail_field_password),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            imageVector = if (passwordVisible) {
+                                Icons.Default.VisibilityOff
+                            } else {
+                                Icons.Default.Visibility
+                            },
+                            contentDescription = stringResource(
+                                if (passwordVisible) {
+                                    R.string.action_hide_password
+                                } else {
+                                    R.string.action_reveal_password
+                                },
+                            ),
+                        )
+                    }
+                    IconButton(onClick = { onCopyPassword(password) }) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = stringResource(R.string.action_copy_password),
+                        )
+                    }
                 }
             }
         }

@@ -78,6 +78,11 @@ class DatabaseProvider @Inject constructor(
                 AppDatabase.DATABASE_NAME,
             )
                 .openHelperFactory(factory)
+                // 接进 ALL_MIGRATIONS(v0.5.0 引入,后续累积)。如果忘了写某个迁移,
+                // 这里的 ADD_MIGRATIONS_CALLBACK 会打 log 提示;而不是默认抛
+                // IllegalStateException 让人一头雾水。
+                .addMigrations(*ALL_MIGRATIONS)
+                .addCallback(ALL_MIGRATIONS_CALLBACK)
                 .build()
                 .also { built ->
                     // 强制真正打开 + 验证密钥。错了就在这里抛,不要拖到第一次查询。

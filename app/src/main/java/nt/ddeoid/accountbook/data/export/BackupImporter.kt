@@ -70,6 +70,7 @@ class BackupImporter @Inject constructor(
                     accountType = acc.accountType,
                     registeredAt = acc.registeredAt?.takeIf { it.isNotBlank() },
                     notes = acc.notes,
+                    password = acc.password?.takeIf { it.isNotBlank() },
                     isActive = acc.isActive,
                     createdAt = acc.createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
                     updatedAt = acc.updatedAt.takeIf { it > 0 } ?: System.currentTimeMillis(),

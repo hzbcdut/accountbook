@@ -39,6 +39,12 @@ data class AccountExport(
     val createdAt: Long,
     val updatedAt: Long,
     val tagIds: List<String> = emptyList(),
+    /**
+     * v0.5.0 新增。默认 `null`,所以旧版备份 JSON(没有这个字段)也能被新版读回来,
+     * 不会破坏现有用户的备份。CSV 同理 —— 旧版 CSV 没有这一列,新版解析时按缺列处理
+     * (字段下标 > 实际列数时取 null)。
+     */
+    val password: String? = null,
 )
 
 @Serializable

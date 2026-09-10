@@ -54,6 +54,7 @@ class BackupExporter @Inject constructor(
                     createdAt = row.account.createdAt,
                     updatedAt = row.account.updatedAt,
                     tagIds = row.tags.map { it.id },
+                    password = row.account.password,
                 )
             },
             tags = tagRows.map { TagExport(it.id, it.name, it.color, it.sortOrder, it.isBuiltin) },

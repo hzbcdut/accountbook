@@ -28,6 +28,15 @@
     <string name="field_tags">标签</string>
     <string name="field_notes">备注</string>
 
+    <!-- v0.5.0:账号密码字段 -->
+    <string name="field_password">密码</string>
+    <string name="hint_password">可选</string>
+    <string name="action_reveal_password">显示密码</string>
+    <string name="action_hide_password">隐藏密码</string>
+    <string name="action_copy_password">复制密码</string>
+    <string name="snackbar_password_copied">密码已复制,60 秒后自动清空</string>
+    <string name="detail_field_password">密码</string>
+
     <!-- 主题 -->
     <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
