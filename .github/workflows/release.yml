@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+  # 手动 trigger,便于在 tag push startup_failure 时手动跑一遍看真实日志。
+  workflow_dispatch:
 
 # 不要在打 tag 时和并发 build 抢资源。
 concurrency:
