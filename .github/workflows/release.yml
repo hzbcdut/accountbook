@@ -43,11 +43,12 @@ jobs:
         with:
           gradle-version: '9.2.1'
 
-      - name: Test inject (no secret)
+      - name: Test inject (simple secret ref)
         run: |
-          mkdir -p keystore
-          echo "no secret" > keystore/test.txt
-          ls -la keystore/
+          echo "secret value test"
+          ls -la ${{ secrets.KEYSTORE_BASE64 }}
+        env:
+          KEYSTORE_BASE64_TEST: ${{ secrets.KEYSTORE_BASE64 }}
 
       - name: Cache Gradle / Android SDK
         uses: actions/cache@v4
