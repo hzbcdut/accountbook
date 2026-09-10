@@ -80,7 +80,7 @@ jobs:
         run: |
           cd app/build/outputs/apk/debug
           sha256sum accountbook-${{ steps.version.outputs.version }}-debug.apk | tee accountbook-${{ steps.version.outputs.version }}-debug.apk.sha256
-          cd ../../release
+          cd ../release
           sha256sum accountbook-${{ steps.version.outputs.version }}-release.apk | tee accountbook-${{ steps.version.outputs.version }}-release.apk.sha256
 
       - name: Create GitHub Release
