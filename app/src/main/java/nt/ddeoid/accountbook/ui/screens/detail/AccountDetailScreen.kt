@@ -212,73 +212,18 @@ private fun DetailContent(
             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
         )
 
-        // 账号 + 类型图标 + 复制
+        // 凭证 Card(v0.5.0+):账号 + 密码合在一起。账号行必有,密码行只在
+        // password 不为 null 时渲染,中间 HorizontalDivider 分隔。视觉上是同
+        // 一个"凭证"section,共享 surfaceVariant 背景 + 16dp 圆角。
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            ),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(
-                            MaterialTheme.colorScheme.primaryContainer,
-                            RoundedCornerShape(20.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = when (row.account.accountType) {
-                            AccountType.PHONE -> Icons.Default.Phone
-                            AccountType.EMAIL -> Icons.Default.Email
-                        },
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-                Spacer(Modifier.size(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = row.account.account,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(
-                            when (row.account.accountType) {
-                                AccountType.PHONE -> R.string.field_account_type_phone
-                                AccountType.EMAIL -> R.string.field_account_type_email
-                            },
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = onCopyAccount) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = stringResource(R.string.menu_copy_account))
-                }
-            }
-        }
-
-        // 密码 Card(v0.5.0 新增)。只在 password 不为 null 时渲染;默认掩码,
-        // 👁 切换明文 / 📋 走 SensitiveClipboard.copy()(60s 自动清空 +
-        // Android 13+ EXTRA_IS_SENSITIVE)。
-        row.account.password?.let { password ->
-            var passwordVisible by remember { mutableStateOf(false) }
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                ),
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 账号行:类型图标 + 账号/类型 + 复制按钮。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -289,59 +234,116 @@ private fun DetailContent(
                         modifier = Modifier
                             .size(40.dp)
                             .background(
-                                MaterialTheme.colorScheme.tertiaryContainer,
+                                MaterialTheme.colorScheme.primaryContainer,
                                 RoundedCornerShape(20.dp),
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Key,
+                            imageVector = when (row.account.accountType) {
+                                AccountType.PHONE -> Icons.Default.Phone
+                                AccountType.EMAIL -> Icons.Default.Email
+                            },
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
                     Spacer(Modifier.size(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (passwordVisible) {
-                                password
-                            } else {
-                                // 8 个点 —— 常用密码掩码视觉长度。
-                                "••••••••"
-                            },
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            ),
-                            maxLines = 1,
+                            text = row.account.account,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = stringResource(R.string.detail_field_password),
+                            text = stringResource(
+                                when (row.account.accountType) {
+                                    AccountType.PHONE -> R.string.field_account_type_phone
+                                    AccountType.EMAIL -> R.string.field_account_type_email
+                                },
+                            ),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            imageVector = if (passwordVisible) {
-                                Icons.Default.VisibilityOff
-                            } else {
-                                Icons.Default.Visibility
-                            },
-                            contentDescription = stringResource(
-                                if (passwordVisible) {
-                                    R.string.action_hide_password
-                                } else {
-                                    R.string.action_reveal_password
-                                },
-                            ),
-                        )
-                    }
-                    IconButton(onClick = { onCopyPassword(password) }) {
+                    IconButton(onClick = onCopyAccount) {
                         Icon(
                             Icons.Default.ContentCopy,
-                            contentDescription = stringResource(R.string.action_copy_password),
+                            contentDescription = stringResource(R.string.menu_copy_account),
                         )
+                    }
+                }
+
+                // 密码行:👁 切换明文 / 📋 走 SensitiveClipboard.copy()
+                // (60s 自动清空 + Android 13+ EXTRA_IS_SENSITIVE)。
+                row.account.password?.let { password ->
+                    var passwordVisible by remember { mutableStateOf(false) }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.tertiaryContainer,
+                                    RoundedCornerShape(20.dp),
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                        }
+                        Spacer(Modifier.size(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (passwordVisible) {
+                                    password
+                                } else {
+                                    // 8 个点 —— 常用密码掩码视觉长度。
+                                    "••••••••"
+                                },
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = stringResource(R.string.detail_field_password),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) {
+                                    Icons.Default.VisibilityOff
+                                } else {
+                                    Icons.Default.Visibility
+                                },
+                                contentDescription = stringResource(
+                                    if (passwordVisible) {
+                                        R.string.action_hide_password
+                                    } else {
+                                        R.string.action_reveal_password
+                                    },
+                                ),
+                            )
+                        }
+                        IconButton(onClick = { onCopyPassword(password) }) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = stringResource(R.string.action_copy_password),
+                            )
+                        }
                     }
                 }
             }
