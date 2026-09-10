@@ -44,6 +44,11 @@ jobs:
         with:
           gradle-version: '9.2.1'
 
+      - name: Inject keystore (test)
+        run: echo "KEYSTORE_BASE64 length: ${#KEYSTORE_BASE64}"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
       - name: Cache Gradle / Android SDK
         uses: actions/cache@v4
         with:
