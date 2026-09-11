@@ -236,6 +236,18 @@ fun AccountEditBottomSheet(
                 }
             }
 
+            // 备注
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                label = { Text(stringResource(R.string.field_notes)) },
+                placeholder = { Text(stringResource(R.string.hint_notes)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 80.dp),
+                minLines = 2,
+            )
+
             // 注册时间
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -263,18 +275,6 @@ fun AccountEditBottomSheet(
                     }
                 }
             }
-
-            // 备注
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text(stringResource(R.string.field_notes)) },
-                placeholder = { Text(stringResource(R.string.hint_notes)) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 80.dp),
-                minLines = 2,
-            )
 
             // 密码(v0.5.0 新增)。可选,默认掩码,trailingIcon 切显示/隐藏。
             // 不做强度校验 —— 第一版保持简单。
