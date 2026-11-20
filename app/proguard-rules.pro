@@ -1,3 +1,6 @@
+# Tink references Error Prone annotations that are not shipped at runtime.
+-dontwarn com.google.errorprone.annotations.**
+
 # ProGuard rules for AccountBook.
 # Most of the heavy lifting is done by the default Android optimize file plus
 # the consumer rules that ship with our libraries. Add app-specific rules here.
